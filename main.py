@@ -6,7 +6,7 @@ Handles scheduling, Home Assistant integration, and Reinforcement Learning.
 import sqlite3
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 import httpx
 import websockets
@@ -20,13 +20,23 @@ from dotenv import load_dotenv
 
 # Load the hidden variables from the .env file
 load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'brain.db')
+
+print(f"📂 Database localized to: {DB_PATH}")
 
 # --- CONFIGURATION ---
 HA_URL = "http://" + os.getenv("HA_ADD") + "/api/services/climate/set_temperature"
 HA_TOKEN = os.getenv("HA_TOKEN")
-HA_URL_FORECAST = "http://" + os.getenv("HA_ADD") + "/api/services/weather/get_forecasts"
+HA_URL_FORECAST = "http://" + os.getenv("HA_ADD") + "/api/services/weather/get_forecasts?return_response"
 HA_URL_STATE = "http://" + os.getenv("HA_ADD") + "/api/states/"
+IP = os.getenv("IP")
+PORT = int(os.getenv("PORT"))
 THERMOSTAT_ENTITY_ID = os.getenv("THERMOSTAT_ENTITY_ID")
+COOLING_ENERGY = os.getenv("COOLING_ENERGY_USAGE_SENSOR")
+OUTSIDE_TEMP_SENSOR = os.getenv("OUTSIDE_TEMP_SENSOR")
+OUTSIDE_HUMD_SENSOR = os.getenv("OUTSIDE_HUMD_SENSOR")
+MET_IO_FORCAST = os.getenv("MET_IO_FORCAST")
 
 # --- STATE TRACKING ---
 # Replaces global variables to keep Pylint happy and state organized.
@@ -34,7 +44,7 @@ APP_STATE = {
     "expected_target_temp": None,
     "user_override_count": 0,
     "start_kwh": 0.0,
-    "last_evaluated_minute": None,
+    "last_evaluated_minute": -1,
     "last_grade_run": None,
     "active_block": None,      # Tracks which time block we are in
     "locked_action": None,     # The decision we are sticking with
@@ -45,7 +55,7 @@ APP_STATE = {
 # --- DATABASE SETUP ---
 def initialize_brain():
     """Creates the SQLite database and necessary tables if they do not exist."""
-    conn = sqlite3.connect('brain.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute('''
@@ -91,7 +101,7 @@ def initialize_brain():
     print("brain.db successfully initialized.")
 
 def update_q_table(time_block, temp_band, humidity_band, is_peak_pricing, action_taken, reward):
-    conn = sqlite3.connect('brain.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO q_table (time_block, temp_band, humidity_band, is_peak_pricing, action_taken, q_score)
@@ -107,7 +117,7 @@ def log_history(time_block: str, actual_temp: float, target_temp: float, actual_
                 action_taken: str, kwh_consumed: float, user_overrides: int, reward_granted: float):
     """Saves performance data. Ensure brain.db was deleted recently to support 'target_temp'."""
     try:
-        conn = sqlite3.connect('brain.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         local_now = datetime.now().isoformat()
         cursor.execute('''
@@ -139,17 +149,23 @@ async def trigger_cooling(target_temp: float):
         return response.status_code
 
 async def get_sensor_state(entity_id: str):
-    """Fetches the current state of any HA entity."""
-    headers = {
-        "Authorization": f"Bearer {HA_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"{HA_URL_STATE}{entity_id}", headers=headers)
-        if response.status_code == 200:
-            data = response.json()
-            return float(data['state'])
-        return 0.0
+        try:
+            response = await client.get(f"{HA_URL_STATE}{entity_id}", headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                state_val = data.get('state')
+                # Check for non-numeric states common in HA
+                if state_val in [None, 'unavailable', 'unknown', 'none']:
+                    return None
+                try:
+                    return float(state_val)
+                except (ValueError, TypeError):
+                    return None
+            return None
+        except Exception:
+            return None
 
 async def get_current_indoor_temp() -> float:
     """Fetches the actual indoor temperature from the thermostat attributes."""
@@ -160,7 +176,7 @@ async def get_current_indoor_temp() -> float:
     
     async with httpx.AsyncClient() as client:
         # Hit the states endpoint for your specific thermostat
-        response = await client.get(f"{HA_URL_STATE}climate.home", headers=headers)
+        response = await client.get(f"{HA_URL_STATE}" + THERMOSTAT_ENTITY_ID, headers=headers)
         
         if response.status_code == 200:
             data = response.json()
@@ -170,25 +186,52 @@ async def get_current_indoor_temp() -> float:
             if current_temp is not None:
                 return float(current_temp)
                 
-    # Fallback to 75.0 if the API fails or HA is rebooting
+    # Fallback to 72.0 if the API fails or HA is rebooting
     print("Warning: Could not fetch indoor temp. Defaulting to 72.0°F")
     return 72.0
 
 async def get_afternoon_forecast():
-    """Fetches the hourly weather forecast from HA."""
+    """Fetches hourly forecast with the required return_response parameter."""
     headers = {
         "Authorization": f"Bearer {HA_TOKEN}",
         "Content-Type": "application/json"
     }
+    # Ensure this matches your Met.no entity exactly
     payload = {
-        "entity_id": "weather.forecast_home",
+        "entity_id": MET_IO_FORCAST,
         "type": "hourly"
     }
-    async with httpx.AsyncClient() as client:
-        response = await client.post(HA_URL_FORECAST, headers=headers, json=payload)
-        data = response.json()
-        forecasts = data.get("weather.forecast_home", {}).get("forecast", [])
-        return forecasts
+    
+    print("📡 Requesting forecast from weather.forecast_home...")
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+            # The URL now contains ?return_response
+                response = await client.post(HA_URL_FORECAST, headers=headers, json=payload)
+            
+                if response.status_code != 200:
+                    print(f"❌ HA Forecast Error: {response.status_code} - {response.text}")
+                    return []
+                else:
+                    data = response.json()
+                    service_output = data.get("service_response", {})
+                    entity_forecast = service_output.get(MET_IO_FORCAST, {})
+                    forecasts = entity_forecast.get("forecast", [])
+                    if forecasts:
+                        print(f"✅ Success! Parsed {len(forecasts)} forecast points from service_response.")
+                    else:
+                        if isinstance(service_output, list):
+                            forecasts = service_output
+                            print(f"✅ Parsed {len(forecasts)} points from flat list.")
+                        else:
+                            print(f"⚠️ Keys in service_response: {list(service_output.keys())}")
+                    return forecasts
+                print(f"⚠️ Forecast Attempt {attempt+1} failed: {response.status_code}")
+                await asyncio.sleep(2)
+        except Exception as e:
+            print(f"⚠️ Forecast Connection Attempt {attempt+1} failed: {e}")
+            await asyncio.sleep(2)
+    return []
 
 # --- WEBSOCKET LISTENER ---
 def get_override_count():
@@ -209,7 +252,7 @@ def sync_ha_to_schedule(new_temp: float):
     else:
         current_block = "Evening"
 
-    conn = sqlite3.connect('brain.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO schedule (time_block, target_temp)
@@ -237,15 +280,24 @@ async def handle_thermostat_change(state_data):
     expected = APP_STATE.get("expected_target_temp")
 
     # If there's no expected temp yet, or the new temp is different from the AI's last command
-    if expected is None or abs(new_temp - float(expected)) > 0.1:
+    if expected is None:
+        print(f"📡 Initial Sync: Thermostat is at {new_temp}°F. Memory updated.")
+        APP_STATE["expected_target_temp"] = float(new_temp)
+        APP_STATE["locked_target"] = float(new_temp)
+        return
+    elif abs(new_temp - float(expected)) > 0.5:
         print(f"🚨 MANUAL OVERRIDE DETECTED: House set to {new_temp}°F")
-        
-        # 1. Update the counter (use the key exactly as it appears in APP_STATE)
-        APP_STATE["user_override_count"] = APP_STATE.get("user_override_count", 0) + 1
-        
-        # 2. Update our expectation so we don't trigger a double-count
+        now = datetime.now()
+        # If the change happens within 15 mins of a block start, we ignore the 'penalty'
+        # and just treat it as a new scheduled preference.
         APP_STATE["expected_target_temp"] = new_temp
-        
+        is_grace_period = now.minute < 15 
+        if not is_grace_period:
+            APP_STATE["user_override_count"] += 1
+            print(f"🚨 MANUAL OVERRIDE: Penalty applied.")
+        else:
+            print(f"Adjustment: Logged without penalty.")
+
         # 3. Sync to DB and Memory
         sync_ha_to_schedule(new_temp)
     else:
@@ -317,7 +369,7 @@ def calculate_reward(user_overrides: int, kwh_used: float, is_peak_pricing: bool
 
 def get_scheduled_temp(time_block: str) -> float:
     """Reads the user's baseline schedule from the database."""
-    conn = sqlite3.connect('brain.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     # Fetch the target temp for the specific time block
@@ -325,40 +377,54 @@ def get_scheduled_temp(time_block: str) -> float:
     result = cursor.fetchone()
     conn.close()
     
-    # If the user hasn't set a schedule for this block, default to 75F
+    # If the user hasn't set a schedule for this block, default to 72F
     if result is None:
         return 72.0 
     
     return float(result[0])
 
-def get_state_bands(forecast_temp: float, forecast_humidity: float):
-    """Translates raw weather numbers into the buckets used by our Q-Table."""
-    if forecast_temp < 80:
-        temp_band = "<80"
-    elif 80 <= forecast_temp < 90:
-        temp_band = "80-90"
-    elif 90 <= forecast_temp < 100:
-        temp_band = "90-100"
+def get_state_bands(temp, humidity):
+    # Temp Bands: <75, 80, 85, 90, 95, 100, 105, 110
+    t_list = [75, 80, 85, 90, 95, 100, 105, 110]
+    t_band = "110+"
+    if temp < 75: 
+        t_band = "<75"
     else:
-        temp_band = "100+"
+        for val in t_list:
+            if temp < val:
+                t_band = f"{val-5}-{val}"
+                break
 
-    humidity_band = "Muggy (>35%)" if forecast_humidity > 35 else "Dry (<35%)"
-    return temp_band, humidity_band
+    # Humidity Bands: <5, 10, 15, 20, 25, 30, 45, 60
+    h_list = [5, 10, 15, 20, 25, 30, 45, 60]
+    h_band = "60%+"
+    if humidity < 5:
+        h_band = "<5%"
+    else:
+        # Special handling for the 30-45 and 45-60 jumps
+        for val in h_list:
+            if humidity < val:
+                if val == 45: h_band = "30-45%"
+                elif val == 60: h_band = "45-60%"
+                else: h_band = f"{val-5}-{val}%"
+                break
+                
+    return t_band, h_band
 
 def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: float, 
-                      is_peak_pricing: bool, baseline_temp: float) -> tuple[str, float]:
+                     is_peak_pricing: bool, baseline_temp: float) -> tuple[str, float]:
     
     temp_band, humidity_band = get_state_bands(forecast_temp, forecast_humidity)
     
-    # 1. Contextual Toolkit based on time of day
-    if time_block in ["Morning", "Afternoon"]:
+    # FIX: Use "in" to catch 'Early Morning', 'Late Morning', etc.
+    if "Morning" in time_block or "Afternoon" in time_block or "Mid-Day" in time_block:
         available_actions = ["Normal", "Pre-cool 2°F", "Pre-cool 4°F"]
     else:
-        # Evening/Night toolkit
+        # Evening/Night/Overnight toolkit
         available_actions = ["Normal", "Night Drop 2°F", "Eco Mode +2°F"]
 
     # 2. Check the historical cheat sheet (Q-Table)
-    conn = sqlite3.connect('brain.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT action_taken, q_score FROM q_table
@@ -370,7 +436,7 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
     q_scores = {row[0]: row[1] for row in results}
 
     # 3. Epsilon-Greedy Logic (15% chance to experiment)
-    epsilon = 0.15 
+    epsilon = 0.20 
     is_exploring = random.random() < epsilon
 
     if not q_scores or is_exploring:
@@ -393,72 +459,63 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
 
     return chosen_action, target_temp
 
+    
 async def evaluate_precooling():
-    """Analyzes forecast to determine if early pre-cooling is necessary."""
+    """Analyzes forecast with UTC-to-Local conversion."""
+    print("🔍 Advisor is checking today's thermal outlook...")
+    
+    max_predicted_temp = 0.0
+    peak_humidity = 0.0
+    
     forecasts = await get_afternoon_forecast()
-    today = datetime.now().date()
-    peak_heat_detected = False
-    high_humidity_detected = False
-    max_predicted_temp = 0
-    peak_humidity = 0
+    if not forecasts:
+        return None
+
+    # Get today's date in local time
+    today_local = datetime.now().date()
 
     for block in forecasts:
-        dt = datetime.fromisoformat(block['datetime'])
-        if dt.date() == today and 14 <= dt.hour <= 18:
-            temp = block.get('temperature', 0)
-            humidity = block.get('humidity', 0)
+        dt_str = block.get('datetime', '')
+        if not dt_str: continue
+        
+        # Convert UTC string to aware datetime object
+        dt_utc = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+        
+        # Shift UTC to Tucson time (MST is UTC-7)
+        dt_local = dt_utc - timedelta(hours=7)
+        
+        # Only evaluate the upcoming afternoon (2 PM to 6 PM) for TODAY
+        if dt_local.date() == today_local and 14 <= dt_local.hour <= 18:
+            temp = float(block.get('temperature', 0.0))
+            humidity = float(block.get('humidity', 0.0))
 
             if temp > max_predicted_temp:
                 max_predicted_temp = temp
             if humidity > peak_humidity:
                 peak_humidity = humidity
 
-            if temp > 95:
-                peak_heat_detected = True
-            if humidity > 35:
-                high_humidity_detected = True
+    # If we still have 0.0, we didn't find the window
+    if max_predicted_temp == 0.0:
+        print("⚠️ Advisor could not find a matching 2pm-6pm window for today.")
+        return None
 
-    if peak_heat_detected and high_humidity_detected:
-        print(f"Alert: Muggy afternoon ({max_predicted_temp}°F, {peak_humidity}% humidity).")
-        await trigger_cooling(target_temp=68.0)
-    elif peak_heat_detected:
-        print(f"Alert: Dry peak heat of {max_predicted_temp}°F. Standard pre-cooling.")
-        await trigger_cooling(target_temp=70.0)
-    else:
-        print(f"Forecast clear: Max {max_predicted_temp}°F with {peak_humidity}% humidity.")
-
-async def run_afternoon_learning_cycle(chosen_action, is_peak_pricing):
-    """Executes a cooling action and grades its performance over 4 hours."""
-    start_kwh = await get_sensor_state("sensor.cooling_energy_usage")
-    print(f"Executing action: {chosen_action}")
-
-    await asyncio.sleep(4 * 60 * 60)
-
-    end_kwh = await get_sensor_state("sensor.cooling_energy_usage")
-    kwh_used = end_kwh - start_kwh
-    print(f"Energy consumed this cycle: {kwh_used} kWh")
-
-    user_overrides = get_override_count()
-    reward = calculate_reward(user_overrides, kwh_used, is_peak_pricing)
-
-    # In a full run, we would pass the actual state bands here
-    update_q_table("Afternoon", "90-100", "Dry", is_peak_pricing, chosen_action, reward)
-
-APP_STATE = {
-    # ... your other variables ...
-    "last_evaluated_minute": None,
-    "last_grade_run": None,
-    "active_block": None,
-    "locked_action": None,
-    "locked_target": None
-}
+    # Logic decision
+    if max_predicted_temp > 95 and peak_humidity > 35:
+        print(f"📢 Advisor: Muggy peak ({max_predicted_temp}°F, {peak_humidity}%). Suggesting 4°F pre-cool.")
+        return "Pre-cool 4°F"
+    elif max_predicted_temp > 95:
+        print(f"📢 Advisor: Dry peak heat of {max_predicted_temp}°F. Suggesting 2°F pre-cool.")
+        return "Pre-cool 2°F"
+    
+    print(f"☀️ Advisor: Forecast clear. (Max predicted: {max_predicted_temp}°F)")
+    return None
 
 def get_current_block_name():
     """Maps the current hour to a 2-hour granular block."""
     hour = datetime.now().hour
     
-    if 0 <= hour < 6: return "Overnight"
-    if 6 <= hour < 8: return "Early Morning"
+    if 0 <= hour < 5: return "Overnight"
+    if 5 <= hour < 8: return "Early Morning"
     if 8 <= hour < 10: return "Late Morning"
     if 10 <= hour < 12: return "Mid-Day"
     if 12 <= hour < 14: return "Early Afternoon"
@@ -468,77 +525,156 @@ def get_current_block_name():
     return "Late Night"
 
 async def master_clock():
+    # 1. Startup Diagnostics
+    print("🚀 Injecting startup log for verification...")
+    log_history("Startup", 70.0, 70.0, 50.0, "System Initialization", 0.0, 0, 0.0)
     print("🕰️ High-Res Master Clock started. Monitoring 2-hour intervals.")
-    
+
     while True:
         now = datetime.now()
         current_block = get_current_block_name()
         
-        # 1. THE 5-MINUTE TELEMETRY LOOP
+        # --- THE 5-MINUTE TELEMETRY LOOP ---
         if now.minute % 5 == 0 and APP_STATE["last_evaluated_minute"] != now.minute:
             APP_STATE["last_evaluated_minute"] = now.minute
-            
-            # Fetch Live Data
-            indoor_temp = await get_current_indoor_temp()
-            current_kwh = await get_sensor_state("sensor.cooling_energy_usage")
-            
-            # BLOCK TRANSITION LOGIC
-            if APP_STATE["active_block"] != current_block:
-                # A. Grade the block that just ended before starting the new one
-                if APP_STATE["active_block"] is not None:
-                    # Is it peak? (Peak is 4pm-7pm in our mapper)
-                    is_peak = (APP_STATE["active_block"] == "Peak Hours")
-                    await grade_current_block(APP_STATE["active_block"], is_peak)
+            try:
+                # A. Fetch Sensors
+                indoor_temp = await get_current_indoor_temp()
+                current_kwh = await get_sensor_state(COOLING_ENERGY)
+                
+                # B. Weather Fetch (Fail-safe against the 'float' error)
+                try:
+                    f_temp = await get_sensor_state(OUTSIDE_TEMP_SENSOR)
+                    f_humid = await get_sensor_state(OUTSIDE_HUMD_SENSOR)
+                    
+                    if f_temp is None or f_temp < 32.0 or f_humid is None:
+                        print("⚠️ Outdoor sensors unavailable. Using Tucson defaults (75.0°F, 20.0%)")
+                        f_temp, f_humid = 75.0, 20.0
+                    # C. Guard the Ambient Cooling check
+                    is_ambient_cooling = False
+                    # Only active if it's actually cool but NOT freezing/glitched
+                    if 40.0 < f_temp < (target_temp - 4):
+                        is_ambient_cooling = True
+                        print(f"🌬️ Ambient Cooling Active: Outdoor {f_temp}°F")
+                except:
+                    # Fallback if specific sensors fail
+                    f_temp, f_humid = 72.0, 20.0
 
-                # B. Initialize the new block
-                print(f"🚀 Entering Block: {current_block}")
-                APP_STATE["active_block"] = current_block
-                APP_STATE["start_kwh"] = current_kwh
-                APP_STATE["user_override_count"] = 0
-                
-                # AI decision for the new block
-                forecasts = await get_afternoon_forecast()
-                f_temp = forecasts[0].get('temperature', 95.0) if forecasts else 95.0
-                f_humid = forecasts[0].get('humidity', 20.0) if forecasts else 20.0
-                
-                baseline = get_scheduled_temp(current_block)
-                action, target = get_best_q_action(current_block, f_temp, f_humid, (current_block == "Peak Hours"), baseline)
-                
-                APP_STATE["locked_action"] = action
-                APP_STATE["locked_target"] = target
-                APP_STATE["current_band"] = get_state_bands(f_temp, f_humid)
-            
-            # 2. MAINTAIN & LOG
-            target_temp = APP_STATE["locked_target"]
-            chosen_action = APP_STATE["locked_action"]
-            running_kwh = float(current_kwh) - float(APP_STATE.get("start_kwh", current_kwh))
-            
-            APP_STATE["expected_target_temp"] = float(target_temp)
-            asyncio.create_task(trigger_cooling(target_temp))
-            
-            log_history(
-                current_block, indoor_temp, target_temp, 20.0, 
-                chosen_action, max(0, running_kwh), APP_STATE["user_override_count"], 0.0
-            )
+                # --- C. BLOCK TRANSITION & INITIALIZATION ---
+                is_startup = (APP_STATE["active_block"] is None)
+                is_new_block = (APP_STATE["active_block"] != current_block)
 
-        await asyncio.sleep(30)
+                if is_startup or is_new_block:
+                    # 1. Fetch the REAL TARGET (setpoint) from the thermostat attributes
+                    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
+                    actual_thermostat_target = 73.0 # Safe default
+                    
+                    try:
+                        async with httpx.AsyncClient(timeout=10) as client:
+                            response = await client.get(f"{HA_URL_STATE}" + THERMOSTAT_ENTITY_ID, headers=headers)
+                            if response.status_code == 200:
+                                data = response.json()
+                                # Pull 'temperature' from attributes, NOT 'state'
+                                ha_target = data.get("attributes", {}).get("temperature")
+                                if ha_target:
+                                    actual_thermostat_target = float(ha_target)
+                                    print(f"🌡️ Live Thermostat Target detected: {actual_thermostat_target}°F")
+                    except Exception as e:
+                        print(f"⚠️ Could not fetch live target, using default: {e}")
+
+                    if is_startup:
+                        print(f"📡 Initializing AI state for {current_block}...")
+                        APP_STATE["locked_target"] = actual_thermostat_target
+                    else:
+                        print(f"🚀 Transitioning to {current_block}")
+                        await grade_current_block(APP_STATE["active_block"], (APP_STATE["active_block"] == "Peak Hours"))
+
+                    # Reset block variables
+                    APP_STATE["active_block"] = current_block
+                    APP_STATE["start_kwh"] = current_kwh
+                    APP_STATE["user_override_count"] = 0
+                    
+                    # 1. RUN ADVISOR
+                    forecast_rec = await evaluate_precooling()
+                    baseline = get_scheduled_temp(current_block)
+
+                    # 2. PICK STRATEGY
+                    # Check if a manual override was ALREADY set in the last 5 mins (e.g. at 10:04)
+                    if is_startup and APP_STATE.get("locked_target") is not None:
+                        print(f"🙌 Respecting recent manual adjustment: {APP_STATE['locked_target']}°F")
+                        action = "Manual/Baseline"
+                        target = APP_STATE["locked_target"]
+                    else:
+                        is_peak = (current_block == "Peak Hours")
+                        action, target = get_best_q_action(current_block, f_temp, f_humid, is_peak, baseline)
+                        
+                        # 3. APPLY ADVISOR OVERRIDE
+                        if forecast_rec and action == "Normal":
+                            print(f"🧠 Advisor override: Switching 'Normal' to {forecast_rec}")
+                            action = forecast_rec
+                            if "2°F" in forecast_rec: target = baseline - 2.0
+                            if "4°F" in forecast_rec: target = baseline - 4.0
+
+                    # 4. LOCK IT IN
+                    APP_STATE["locked_action"] = action
+                    APP_STATE["locked_target"] = target
+                    APP_STATE["current_band"] = get_state_bands(f_temp, f_humid)
+
+                # D. EXECUTE & LOG
+                chosen_action = APP_STATE.get("locked_action", "Normal")
+                target_temp = APP_STATE.get("locked_target", 72.0)
+                running_kwh = float(current_kwh) - float(APP_STATE.get("start_kwh", 0.0))
+                
+                APP_STATE["expected_target_temp"] = float(target_temp)
+                asyncio.create_task(trigger_cooling(target_temp))
+                is_ambient_cooling = False
+                if f_temp > 40.0 and f_temp < (target_temp - 4):
+                    is_ambient_cooling = True
+                    print(f"🌬️ Ambient Cooling Active: Outdoor {f_temp}°F is 4°+ below Target {target_temp}°F.")
+
+                # Update the action name for the log so you can see it in the dashboard
+                display_action = chosen_action
+                if is_ambient_cooling:
+                    display_action = f"{chosen_action} (Fan Only)"
+                
+                log_history(
+                    current_block, indoor_temp, target_temp, f_humid, 
+                    display_action, max(0, running_kwh), APP_STATE.get("user_override_count", 0), 0.0
+                )
+                print(f"✅ 5-minute log successful. ({chosen_action} @ {target_temp}°F)")
+                await asyncio.sleep(61)
+                continue
+
+            except Exception as e:
+                print(f"❌ CRITICAL ERROR IN MASTER CLOCK: {e}")
+
+        await asyncio.sleep(1)
 
 async def grade_current_block(block_name: str, is_peak: bool):
     """Generic grading function for any time block."""
     print(f"📝 Grading the {block_name} block...")
     try:
-        current_kwh = await get_sensor_state("sensor.cooling_energy_usage")
+        # 1. Fetch LIVE weather for the grade, don't rely on the 'locked' band
+        try:
+            f_temp = await get_sensor_state(OUTSIDE_TEMP_SENSOR)
+            f_humid = await get_sensor_state(OUTSIDE_HUMD_SENSOR)
+        except:
+            f_temp, f_humid = 72.0, 20.0 # Emergency fallback
+
+        # 2. Calculate the actual band right now
+        current_t_band, current_h_band = get_state_bands(f_temp, f_humid)
+        current_kwh = await get_sensor_state(COOLING_ENERGY)
         start_kwh = APP_STATE.get("start_kwh", current_kwh)
         actual_kwh_used = float(current_kwh) - float(start_kwh)
         if actual_kwh_used < 0: actual_kwh_used = 0.0
 
-        overrides = APP_STATE["user_override_count"]
+        overrides = APP_STATE.get("user_override_count", 0)
         reward = calculate_reward(overrides, kwh_used=actual_kwh_used, is_peak_pricing=is_peak)
         
         state_band = APP_STATE.get("current_band", ("90-100", "Dry (<35%)"))
         action = APP_STATE.get("locked_action", "Normal")
         
-        update_q_table(block_name, state_band[0], state_band[1], is_peak, action, reward)
+        update_q_table(block_name, current_t_band, current_h_band, is_peak, action, reward)
         print(f"✅ {block_name} Graded. Reward: {reward:.2f} | kWh: {actual_kwh_used:.2f} | Overrides: {overrides}")
         
     except Exception as e:
@@ -575,15 +711,15 @@ async def dashboard(request: Request):
 @app.post("/api/schedule")
 async def update_schedule(time_block: str, target_temp: float):
     """API Endpoint to manually update the cooling schedule."""
-    conn = sqlite3.connect('brain.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         INSERT INTO schedule (time_block, target_temp)
         VALUES (?, ?)
         ON CONFLICT(time_block) DO UPDATE SET target_temp = excluded.target_temp
     ''', (time_block, target_temp))
-    
+
     conn.commit()
     conn.close()
     
@@ -593,7 +729,7 @@ async def update_schedule(time_block: str, target_temp: float):
 @app.get("/api/q_table")
 async def get_q_table():
     """Fetches the current learned scores."""
-    conn = sqlite3.connect('brain.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT time_block, temp_band, humidity_band, is_peak_pricing, action_taken, q_score FROM q_table ORDER BY q_score DESC")
     columns = [column[0] for column in cursor.description]
@@ -604,7 +740,7 @@ async def get_q_table():
 @app.get("/api/history")
 async def get_history():
     """Fetches the recent execution history."""
-    conn = sqlite3.connect('brain.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     # Added target_temp to the SELECT query below
     cursor.execute("SELECT date_time, time_block, actual_temp, target_temp, actual_humidity, action_taken, user_overrides, reward_granted FROM history_log ORDER BY id DESC LIMIT 15")
@@ -614,4 +750,4 @@ async def get_history():
     return {"data": results}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=IP, port=PORT)
