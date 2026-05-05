@@ -94,8 +94,8 @@
                 <div class="form-group">
                     <label>Time Block</label>
                     <select id="timeBlock">
-                        <option value="Overnight">Overnight (12am-6am)</option>
-                        <option value="Early Morning">Early Morning (6am-8am)</option>
+                        <option value="Overnight">Overnight (12am-5am)</option>
+                        <option value="Early Morning">Early Morning (5am-8am)</option>
                         <option value="Late Morning">Late Morning (8am-10am)</option>
                         <option value="Mid-Day">Mid-Day (10am-12pm)</option>
                         <option value="Early Afternoon">Early Afternoon (12pm-2pm)</option>
@@ -342,7 +342,7 @@
         setInterval(() => {
             fetchQTable();
             fetchHistory();
-        }, 10000);
+        }, 60000);
     </script>
 </body>
 </html>
