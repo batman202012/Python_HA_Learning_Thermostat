@@ -33,8 +33,13 @@ THERMOSTAT_ENTITY_ID = os.getenv("THERMOSTAT_ENTITY_ID")
 APP_STATE = {
     "expected_target_temp": None,
     "user_override_count": 0,
-    "last_precool_run": None,
-    "last_learning_run": None
+    "start_kwh": 0.0,
+    "last_evaluated_minute": None,
+    "last_grade_run": None,
+    "active_block": None,      # Tracks which time block we are in
+    "locked_action": None,     # The decision we are sticking with
+    "locked_target": None,     # The temperature we are maintaining
+    "current_band": None       # The weather conditions when we decided
 }
 
 # --- DATABASE SETUP ---
@@ -85,9 +90,7 @@ def initialize_brain():
     conn.close()
     print("brain.db successfully initialized.")
 
-def update_q_table(time_block: str, temp_band: str, humidity_band: str,
-                   is_peak_pricing: bool, action_taken: str, reward: float):
-    """Updates the reinforcement learning score for a specific state/action combo."""
+def update_q_table(time_block, temp_band, humidity_band, is_peak_pricing, action_taken, reward):
     conn = sqlite3.connect('brain.db')
     cursor = conn.cursor()
     cursor.execute('''
@@ -96,21 +99,27 @@ def update_q_table(time_block: str, temp_band: str, humidity_band: str,
         ON CONFLICT(time_block, temp_band, humidity_band, is_peak_pricing, action_taken)
         DO UPDATE SET q_score = q_score + excluded.q_score
     ''', (time_block, temp_band, humidity_band, is_peak_pricing, action_taken, reward))
-    conn.commit()
+    conn.commit() # <--- THIS LINE IS CRITICAL
     conn.close()
-    print(f"Brain updated: {action_taken} in {temp_band} heat yielded a score of {reward}")
+    print(f"Brain updated: {action_taken} yielded a score of {reward}")
 
 def log_history(time_block: str, actual_temp: float, target_temp: float, actual_humidity: float, 
                 action_taken: str, kwh_consumed: float, user_overrides: int, reward_granted: float):
-    """Saves the current performance to the database for the frontend graph."""
-    conn = sqlite3.connect('brain.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO history_log (time_block, actual_temp, target_temp, actual_humidity, action_taken, kwh_consumed, user_overrides, reward_granted)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (time_block, actual_temp, target_temp, actual_humidity, action_taken, kwh_consumed, user_overrides, reward_granted))
-    conn.commit()
-    conn.close()
+    """Saves performance data. Ensure brain.db was deleted recently to support 'target_temp'."""
+    try:
+        conn = sqlite3.connect('brain.db')
+        cursor = conn.cursor()
+        local_now = datetime.now().isoformat()
+        cursor.execute('''
+            INSERT INTO history_log (date_time, time_block, actual_temp, target_temp, actual_humidity, 
+                                     action_taken, kwh_consumed, user_overrides, reward_granted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (local_now, time_block, actual_temp, target_temp, actual_humidity, 
+              action_taken, kwh_consumed, user_overrides, reward_granted))
+        conn.commit()
+        conn.close()
+    except sqlite3.OperationalError as e:
+        print(f"Database error: {e}. (Did you delete brain.db to add the new column?)")
 
 # --- HOME ASSISTANT ACTIONS ---
 async def trigger_cooling(target_temp: float):
@@ -142,6 +151,29 @@ async def get_sensor_state(entity_id: str):
             return float(data['state'])
         return 0.0
 
+async def get_current_indoor_temp() -> float:
+    """Fetches the actual indoor temperature from the thermostat attributes."""
+    headers = {
+        "Authorization": f"Bearer {HA_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        # Hit the states endpoint for your specific thermostat
+        response = await client.get(f"{HA_URL_STATE}climate.home", headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            # Dive into the attributes dictionary to pull the exact temperature
+            current_temp = data.get("attributes", {}).get("current_temperature")
+            
+            if current_temp is not None:
+                return float(current_temp)
+                
+    # Fallback to 75.0 if the API fails or HA is rebooting
+    print("Warning: Could not fetch indoor temp. Defaulting to 72.0°F")
+    return 72.0
+
 async def get_afternoon_forecast():
     """Fetches the hourly weather forecast from HA."""
     headers = {
@@ -165,27 +197,60 @@ def get_override_count():
     APP_STATE["user_override_count"] = 0
     return current_count
 
-async def handle_thermostat_change(state_data):
-    """Parses HA state changes to detect manual user overrides."""
-    old_state = state_data.get("old_state")
-    new_state = state_data.get("new_state")
+def sync_ha_to_schedule(new_temp: float):
+    """Updates the baseline schedule when a manual change is made in HA."""
+    now = datetime.now()
+    
+    # Determine which block to update based on the current time
+    if 6 <= now.hour < 12:
+        current_block = "Morning"
+    elif 12 <= now.hour < 18:
+        current_block = "Afternoon"
+    else:
+        current_block = "Evening"
 
-    if not old_state or not new_state:
+    conn = sqlite3.connect('brain.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO schedule (time_block, target_temp)
+        VALUES (?, ?)
+        ON CONFLICT(time_block) DO UPDATE SET target_temp = excluded.target_temp
+    ''', (current_block, new_temp))
+    conn.commit()
+    conn.close()
+
+    # CRITICAL: Update the live memory so the 5-minute loop doesn't overwrite this!
+    APP_STATE["locked_target"] = new_temp
+    print(f"🔄 Memory Synced: AI will now maintain {new_temp}°F for the rest of this block.")
+
+async def handle_thermostat_change(state_data):
+    """Parses HA state changes and strictly identifies manual overrides."""
+    new_state = state_data.get("new_state")
+    if not new_state:
+        return
+        
+    new_temp_raw = new_state.get("attributes", {}).get("temperature")
+    if new_temp_raw is None:
         return
 
-    old_temp = old_state.get("attributes", {}).get("temperature")
-    new_temp = new_state.get("attributes", {}).get("temperature")
+    new_temp = float(new_temp_raw)
+    expected = APP_STATE.get("expected_target_temp")
 
-    if old_temp != new_temp and new_temp is not None:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Target changed: {old_temp}°F -> {new_temp}°F")
-
-        expected = APP_STATE["expected_target_temp"]
-        if expected is None or float(new_temp) != float(expected):
-            print("🚨 USER OVERRIDE DETECTED!")
-            APP_STATE["user_override_count"] += 1
-            APP_STATE["expected_target_temp"] = float(new_temp)
-        else:
-            print("✅ Automated change confirmed. (App initiated)")
+    # If there's no expected temp yet, or the new temp is different from the AI's last command
+    if expected is None or abs(new_temp - float(expected)) > 0.1:
+        print(f"🚨 MANUAL OVERRIDE DETECTED: House set to {new_temp}°F")
+        
+        # 1. Update the counter (use the key exactly as it appears in APP_STATE)
+        APP_STATE["user_override_count"] = APP_STATE.get("user_override_count", 0) + 1
+        
+        # 2. Update our expectation so we don't trigger a double-count
+        APP_STATE["expected_target_temp"] = new_temp
+        
+        # 3. Sync to DB and Memory
+        sync_ha_to_schedule(new_temp)
+    else:
+        # This was an AI-driven change, so we ignore it for the override counter
+        print(f"✅ Automated change to {new_temp}°F confirmed.")
 
 async def listen_to_ha():
     """Maintains a persistent WebSocket connection to Home Assistant."""
@@ -282,14 +347,15 @@ def get_state_bands(forecast_temp: float, forecast_humidity: float):
 
 def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: float, 
                       is_peak_pricing: bool, baseline_temp: float) -> tuple[str, float]:
-    """
-    The Brain: Balances exploration vs. exploitation to choose the best cooling strategy.
-    Returns a tuple: (Action Name, Target Temperature)
-    """
+    
     temp_band, humidity_band = get_state_bands(forecast_temp, forecast_humidity)
     
-    # 1. Define our toolkit: Actions are relative to whatever schedule the user set.
-    available_actions = ["Normal", "Pre-cool 2°F", "Pre-cool 4°F"]
+    # 1. Contextual Toolkit based on time of day
+    if time_block in ["Morning", "Afternoon"]:
+        available_actions = ["Normal", "Pre-cool 2°F", "Pre-cool 4°F"]
+    else:
+        # Evening/Night toolkit
+        available_actions = ["Normal", "Night Drop 2°F", "Eco Mode +2°F"]
 
     # 2. Check the historical cheat sheet (Q-Table)
     conn = sqlite3.connect('brain.db')
@@ -301,7 +367,6 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
     results = cursor.fetchall()
     conn.close()
 
-    # Format results into a dictionary { "Normal": 10.5, "Pre-cool 2°F": 25.0 }
     q_scores = {row[0]: row[1] for row in results}
 
     # 3. Epsilon-Greedy Logic (15% chance to experiment)
@@ -309,20 +374,20 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
     is_exploring = random.random() < epsilon
 
     if not q_scores or is_exploring:
-        # Pick an action we haven't tried yet, or a random one if all have been tried
         untried = [a for a in available_actions if a not in q_scores]
         chosen_action = random.choice(untried) if untried else random.choice(available_actions)
-        print(f"🧠 AI is EXPLORING: Trying '{chosen_action}' to learn its effects.")
+        print(f"🧠 AI is EXPLORING: Trying '{chosen_action}'")
     else:
-        # Pick the action with the absolute highest historical score
         chosen_action = max(q_scores, key=q_scores.get)
-        print(f"🧠 AI is EXPLOITING: Using proven strategy '{chosen_action}' (Score: {q_scores[chosen_action]:.1f})")
+        print(f"🧠 AI is EXPLOITING: Using proven strategy '{chosen_action}'")
 
-    # 4. Translate the chosen strategy into an actual temperature command
-    if chosen_action == "Pre-cool 4°F":
-        target_temp = baseline_temp - 4.0
-    elif chosen_action == "Pre-cool 2°F":
+    # 4. Translate strategy to math
+    if "2°F" in chosen_action and "Drop" in chosen_action or "Pre-cool" in chosen_action:
         target_temp = baseline_temp - 2.0
+    elif "4°F" in chosen_action:
+        target_temp = baseline_temp - 4.0
+    elif "+2°F" in chosen_action:
+        target_temp = baseline_temp + 2.0
     else:
         target_temp = baseline_temp
 
@@ -379,99 +444,105 @@ async def run_afternoon_learning_cycle(chosen_action, is_peak_pricing):
     # In a full run, we would pass the actual state bands here
     update_q_table("Afternoon", "90-100", "Dry", is_peak_pricing, chosen_action, reward)
 
-APP_STATE["last_evaluated_minute"] = None
-APP_STATE["last_grade_run"] = None
+APP_STATE = {
+    # ... your other variables ...
+    "last_evaluated_minute": None,
+    "last_grade_run": None,
+    "active_block": None,
+    "locked_action": None,
+    "locked_target": None
+}
+
+def get_current_block_name():
+    """Maps the current hour to a 2-hour granular block."""
+    hour = datetime.now().hour
+    
+    if 0 <= hour < 6: return "Overnight"
+    if 6 <= hour < 8: return "Early Morning"
+    if 8 <= hour < 10: return "Late Morning"
+    if 10 <= hour < 12: return "Mid-Day"
+    if 12 <= hour < 14: return "Early Afternoon"
+    if 14 <= hour < 16: return "Late Afternoon"
+    if 16 <= hour < 19: return "Peak Hours"  # 3-hour block to match utility peaks
+    if 19 <= hour < 22: return "Evening"
+    return "Late Night"
 
 async def master_clock():
-    """Background task that manages 5-minute polling and daily grading."""
-    print("🕰️ Master clock started. Evaluating every 5 minutes.")
+    print("🕰️ High-Res Master Clock started. Monitoring 2-hour intervals.")
     
     while True:
         now = datetime.now()
+        current_block = get_current_block_name()
         
-        # ==========================================
-        # 1. THE 5-MINUTE EVALUATION LOOP
-        # ==========================================
-        # Triggers at :00, :05, :10, :15, etc.
+        # 1. THE 5-MINUTE TELEMETRY LOOP
         if now.minute % 5 == 0 and APP_STATE["last_evaluated_minute"] != now.minute:
             APP_STATE["last_evaluated_minute"] = now.minute
             
-            # Dynamically determine the current Time Block based on the hour
-            if 6 <= now.hour < 12:
-                current_block = "Morning"
-            elif 12 <= now.hour < 18:
-                current_block = "Afternoon"
-            else:
-                current_block = "Evening"
+            # Fetch Live Data
+            indoor_temp = await get_current_indoor_temp()
+            current_kwh = await get_sensor_state("sensor.cooling_energy_usage")
+            
+            # BLOCK TRANSITION LOGIC
+            if APP_STATE["active_block"] != current_block:
+                # A. Grade the block that just ended before starting the new one
+                if APP_STATE["active_block"] is not None:
+                    # Is it peak? (Peak is 4pm-7pm in our mapper)
+                    is_peak = (APP_STATE["active_block"] == "Peak Hours")
+                    await grade_current_block(APP_STATE["active_block"], is_peak)
+
+                # B. Initialize the new block
+                print(f"🚀 Entering Block: {current_block}")
+                APP_STATE["active_block"] = current_block
+                APP_STATE["start_kwh"] = current_kwh
+                APP_STATE["user_override_count"] = 0
                 
-            # Define Peak Pricing (e.g., 3 PM to 7 PM)
-            is_peak = (15 <= now.hour < 19)
+                # AI decision for the new block
+                forecasts = await get_afternoon_forecast()
+                f_temp = forecasts[0].get('temperature', 95.0) if forecasts else 95.0
+                f_humid = forecasts[0].get('humidity', 20.0) if forecasts else 20.0
+                
+                baseline = get_scheduled_temp(current_block)
+                action, target = get_best_q_action(current_block, f_temp, f_humid, (current_block == "Peak Hours"), baseline)
+                
+                APP_STATE["locked_action"] = action
+                APP_STATE["locked_target"] = target
+                APP_STATE["current_band"] = get_state_bands(f_temp, f_humid)
             
-            print(f"\n⏰ [5-Min Check] Evaluating '{current_block}' schedule...")
+            # 2. MAINTAIN & LOG
+            target_temp = APP_STATE["locked_target"]
+            chosen_action = APP_STATE["locked_action"]
+            running_kwh = float(current_kwh) - float(APP_STATE.get("start_kwh", current_kwh))
             
-            # Fetch user's requested baseline for this time block
-            baseline_temp = get_scheduled_temp(current_block)
-            
-            # Fetch live weather forecast
-            forecasts = await get_afternoon_forecast()
-            forecast_temp = forecasts[0].get('temperature', 95.0) if forecasts else 95.0
-            forecast_humidity = forecasts[0].get('humidity', 20.0) if forecasts else 20.0
-            
-            # Ask the AI what to do
-            chosen_action, target_temp = get_best_q_action(
-                time_block=current_block,
-                forecast_temp=forecast_temp,
-                forecast_humidity=forecast_humidity,
-                is_peak_pricing=is_peak,
-                baseline_temp=baseline_temp
-            )
-            
-            # Execute the cooling command
-            print(f"🤖 AI Decision: {chosen_action}. Target: {target_temp}°F")
+            APP_STATE["expected_target_temp"] = float(target_temp)
             asyncio.create_task(trigger_cooling(target_temp))
             
-            # --- NEW: Log to history so the line graph updates every 5 mins! ---
             log_history(
-                time_block=current_block,
-                actual_temp=forecast_temp, # (Or grab your actual indoor HA sensor here)
-                target_temp=target_temp,
-                actual_humidity=forecast_humidity,
-                action_taken=chosen_action,
-                kwh_consumed=0.0, # We calculate total energy later in the grading loop
-                user_overrides=0,
-                reward_granted=0.0 
+                current_block, indoor_temp, target_temp, 20.0, 
+                chosen_action, max(0, running_kwh), APP_STATE["user_override_count"], 0.0
             )
-            
-            # Save the active state so the grading function knows what we did
-            APP_STATE["current_action"] = chosen_action
-            APP_STATE["current_band"] = get_state_bands(forecast_temp, forecast_humidity)
 
-        # ==========================================
-        # 2. THE GRADING LOOP (End of Block)
-        # ==========================================
-        # For example, grade the "Afternoon" block exactly at 6:00 PM (18:00)
-        if now.hour == 18 and now.minute == 0:
-            if APP_STATE["last_grade_run"] != now.date():
-                print("📝 6:00 PM: Grading the Afternoon block...")
-                
-                # In a real setup, you would have saved 'start_kwh' at 12:00 PM. 
-                # For this snippet, we will pass placeholder energy data to complete the cycle.
-                user_overrides = get_override_count()
-                
-                # Calculate the reward based on the afternoon's performance
-                reward = calculate_reward(user_overrides, kwh_used=1.5, is_peak_pricing=True)
-                
-                # Retrieve the state bands we saved during the 5-minute loop
-                temp_band, humidity_band = APP_STATE.get("current_band", ("90-100", "Dry (<35%)"))
-                action = APP_STATE.get("current_action", "Normal")
-                
-                # Update the database
-                update_q_table("Afternoon", temp_band, humidity_band, True, action, reward)
-                
-                APP_STATE["last_grade_run"] = now.date()
-
-        # Sleep for 30 seconds so we don't spam the CPU, then check the clock again
         await asyncio.sleep(30)
+
+async def grade_current_block(block_name: str, is_peak: bool):
+    """Generic grading function for any time block."""
+    print(f"📝 Grading the {block_name} block...")
+    try:
+        current_kwh = await get_sensor_state("sensor.cooling_energy_usage")
+        start_kwh = APP_STATE.get("start_kwh", current_kwh)
+        actual_kwh_used = float(current_kwh) - float(start_kwh)
+        if actual_kwh_used < 0: actual_kwh_used = 0.0
+
+        overrides = APP_STATE["user_override_count"]
+        reward = calculate_reward(overrides, kwh_used=actual_kwh_used, is_peak_pricing=is_peak)
+        
+        state_band = APP_STATE.get("current_band", ("90-100", "Dry (<35%)"))
+        action = APP_STATE.get("locked_action", "Normal")
+        
+        update_q_table(block_name, state_band[0], state_band[1], is_peak, action, reward)
+        print(f"✅ {block_name} Graded. Reward: {reward:.2f} | kWh: {actual_kwh_used:.2f} | Overrides: {overrides}")
+        
+    except Exception as e:
+        print(f"❌ Error grading {block_name}: {e}")
 
 # --- FASTAPI SETUP ---
 @asynccontextmanager

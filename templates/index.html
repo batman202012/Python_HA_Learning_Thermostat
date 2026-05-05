@@ -94,9 +94,15 @@
                 <div class="form-group">
                     <label>Time Block</label>
                     <select id="timeBlock">
-                        <option value="Morning">Morning</option>
-                        <option value="Afternoon">Afternoon</option>
-                        <option value="Evening">Evening</option>
+                        <option value="Overnight">Overnight (12am-6am)</option>
+                        <option value="Early Morning">Early Morning (6am-8am)</option>
+                        <option value="Late Morning">Late Morning (8am-10am)</option>
+                        <option value="Mid-Day">Mid-Day (10am-12pm)</option>
+                        <option value="Early Afternoon">Early Afternoon (12pm-2pm)</option>
+                        <option value="Late Afternoon">Late Afternoon (2pm-4pm)</option>
+                        <option value="Peak Hours">Peak Hours (4pm-7pm)</option>
+                        <option value="Evening">Evening (7pm-10pm)</option>
+                        <option value="Late Night">Late Night (10pm-12am)</option>
                     </select>
                 </div>
                 <button onclick="updateSchedule()">Inject Configuration</button>
@@ -194,8 +200,14 @@
                 return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             });
 
-            const actualTemps = chartData.map(row => row.actual_temp);
-            const targetTemps = chartData.map(row => row.target_temp || 0); // Fallback to 0 if null
+            const actualTemps = chartData.map(row => row.actual_temp || 0);
+            // Ensure target_temp always has a fallback number so the line doesn't break
+            const targetTemps = chartData.map(row => {
+                if (row.target_temp !== null && row.target_temp !== undefined) {
+                    return row.target_temp;
+                }
+                return row.actual_temp; // Fallback to actual if target is missing
+            });
 
             if (performanceChart) {
                 // If chart exists, just update the data
@@ -294,27 +306,30 @@
 
                 if (json.data.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="5" style="color: var(--text-muted);">No logs recorded yet.</td></tr>';
-                    // Update the line graph with the fresh database logs
-                    updateChart(json.data);
-                    return;
+                } else {
+                    json.data.forEach(row => {
+                        const scoreClass = row.reward_granted >= 0 ? 'score-positive' : 'score-negative';
+                        const date = new Date(row.date_time).toLocaleString(undefined, {
+                            month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'
+                        });
+                        
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${date}</td>
+                            <td>${row.actual_temp}°F / ${row.actual_humidity}%</td>
+                            <td>${row.action_taken}</td>
+                            <td>${row.user_overrides}</td>
+                            <td class="${scoreClass}">${row.reward_granted !== null ? row.reward_granted.toFixed(1) : 'N/A'}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
                 }
 
-                json.data.forEach(row => {
-                    const scoreClass = row.reward_granted >= 0 ? 'score-positive' : 'score-negative';
-                    const date = new Date(row.date_time).toLocaleString(undefined, {
-                        month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'
-                    });
-                    
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${date}</td>
-                        <td>${row.actual_temp}°F / ${row.actual_humidity}%</td>
-                        <td>${row.action_taken}</td>
-                        <td>${row.user_overrides}</td>
-                        <td class="${scoreClass}">${row.reward_granted ? row.reward_granted.toFixed(1) : 'N/A'}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+                // --- FIXED: This now runs every time history is fetched! ---
+                if (json.data) {
+                    updateChart(json.data);
+                }
+
             } catch (error) {
                 console.error("Failed to load History", error);
                 document.getElementById('historyBody').innerHTML = '<tr><td colspan="5" style="color: var(--danger);">Error loading data. Check terminal.</td></tr>';
