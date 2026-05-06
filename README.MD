@@ -1,4 +1,3 @@
-```markdown
 # 🧠 AI Learning Thermostat for Home Assistant
 
 A self-hosted, Reinforcement Learning (Q-Learning) backend that integrates directly with Home Assistant. This system learns your home's unique thermal dynamics, optimizing cooling strategies to balance energy efficiency (especially during peak pricing) with human comfort.
