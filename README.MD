@@ -91,7 +91,7 @@ To ensure the AI runs continuously in the background and starts on boot, deploy 
 sudo nano /etc/systemd/system/thermostat.service
 ```
 
-2. Paste the following configuration (adjust `/home/squad/thermostat` and the `User` to match your actual paths):
+2. Paste the following configuration (adjust `/home/squad/thermostat-ai` and the `User` to match your actual paths):
 ```ini
 [Unit]
 Description=AI Thermostat Control Node
@@ -100,9 +100,9 @@ After=network.target
 [Service]
 Type=simple
 User=squad
-WorkingDirectory=/home/squad/thermostat
+WorkingDirectory=/home/squad/thermostat-ai
 # Activate the virtual environment and run the script
-ExecStart=/home/squad/thermostat/venv/bin/python3 main.py
+ExecStart=/home/squad/thermostat-ai/venv/bin/python3 main.py
 Restart=always
 RestartSec=5
 
