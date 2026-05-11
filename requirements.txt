@@ -1,6 +1,6 @@
 fastapi
+uvicorn[standard]
+jinja2
 httpx
 websockets
-uvicorn
-jinja2
 python-dotenv
