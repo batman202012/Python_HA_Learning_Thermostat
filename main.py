@@ -73,6 +73,8 @@ OUTSIDE_TEMP_SENSOR = os.getenv("OUTSIDE_TEMP_SENSOR")
 OUTSIDE_HUMD_SENSOR = os.getenv("OUTSIDE_HUMD_SENSOR")
 MET_IO_FORCAST = os.getenv("MET_IO_FORCAST")
 WAITING_ROOM_FILE = os.path.join(BASE_DIR, 'waiting_room.json')
+SAFETY_MIN = float(os.getenv("SAFETY_MIN"))
+SAFETY_MAX = float(os.getenv("SAFETY_MAX"))
 
 def save_waiting_room(pending_data):
     """Saves the pending block to the hard drive."""
@@ -650,11 +652,6 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
         raw_target = baseline_temp - 2.0
     else:
         raw_target = baseline_temp
-
-    # --- SAFETY MAX/MIN CLAMP ---
-    # Adjust these values to whatever your comfort limits are
-    SAFETY_MIN = 68.0  # Never go below this, even if pre-cooling
-    SAFETY_MAX = 78.0  # Never go above this, even in Eco Mode
 
     # This line ensures target_temp is NEVER lower than 68 and NEVER higher than 78
     target_temp = max(min(raw_target, SAFETY_MAX), SAFETY_MIN)
