@@ -548,6 +548,16 @@ async def master_clock():
                 running_kwh = float(current_kwh) - float(state.APP_STATE.get("start_kwh", 0.0))
                 state.APP_STATE["expected_target_temp"] = float(target_temp)
                 asyncio.create_task(ha_api.trigger_cooling(target_temp))
+
+                current_overrides = state.APP_STATE.get("user_override_count", 0)
+                is_peak = current_block == "Peak Hours"
+
+                snapshot_reward = rl_agent.calculate_reward(
+                    current_overrides,
+                    kwh_used=max(0, running_kwh),
+                    is_peak_pricing=is_peak
+                )
+
                 is_ambient_cooling = False
                 if f_temp > 40.0 and f_temp < (target_temp - 4):
                     is_ambient_cooling = True
@@ -562,9 +572,10 @@ async def master_clock():
                 state.APP_STATE["last_f_humid"] = f_humid
                 database.log_history(
                     current_block, indoor_temp, target_temp, f_humid,
-                    display_action, max(0, running_kwh), state.APP_STATE.get("user_override_count", 0), 0.0
+                    display_action, max(0, running_kwh), state.APP_STATE.get("user_override_count", 0), snapshot_reward
                 )
-                print(f"✅ 5-minute log successful. ({chosen_action} @ {target_temp}°F)")
+                print(f"✅ 5-minute log successful. ({chosen_action} @ {target_temp}°F"
+                      f" | Live Reward: {snapshot_reward:.2f})")
 
             except Exception as e:
                 print(f"❌ CRITICAL ERROR IN MASTER CLOCK: {e}")
