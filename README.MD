@@ -2,13 +2,27 @@
 
 A self-hosted, Reinforcement Learning (Q-Learning) backend that integrates directly with Home Assistant. This system learns your home's unique thermal dynamics, optimizing cooling strategies to balance energy efficiency (especially during peak pricing) with human comfort.
 
-## ✨ Features
+## ✨ Key Features
+* **Modular Architecture:** A clean, decoupled codebase separating API routing, database management, Home Assistant web-sockets, and the reinforcement learning math.
 * **Reinforcement Learning (Q-Table):** Learns the optimal cooling strategy (e.g., Normal, Pre-cool 2°F, Pre-cool 4°F) for specific outdoor temperature and humidity bands.
-* **Home Assistant Integration:** Listens to state changes via WebSockets and sends commands via the HA REST API.
-* **Weather-Aware Advisor:** Uses hourly forecasts to preemptively cool the house before afternoon heat waves.
-* **Peak Pricing Optimization:** Applies heavy penalties to energy usage during peak utility hours, teaching the AI to shift cooling loads.
-* **Human Comfort Guard:** Detects manual thermostat overrides and applies learning penalties (-20 points) so the AI learns not to make you uncomfortable.
-* **FastAPI Dashboard:** Includes a local web dashboard to view the execution history and the live Q-Table (Learned Behaviors).
+* **Delayed Bellman Grading:** Calculates the true cost of an action by passing the actual future energy usage back to the previous time block to refine its Q-score.
+* **Weather-Aware Advisor:** Uses hourly forecasts to preemptively cool the house before afternoon heat waves, overriding the AI if it hasn't experienced the upcoming weather enough times.
+* **Human Comfort Guard:** Detects manual thermostat overrides via HA WebSockets and applies instant learning penalties (-20 points) so the AI learns not to make you uncomfortable.
+* **Live Console Dashboard:** A custom FastAPI interceptor hijacks the system's `stdout`, broadcasting real-time AI thoughts, transitions, and systemd logs directly to the local web UI.
+
+---
+
+## 📂 System Architecture
+
+The monolithic core has been carved into highly specific, manageable modules:
+
+* `main.py`: The FastAPI Entry Point. Boots the server, loads endpoints, and hijacks the terminal output for the dashboard.
+* `master_loop.py`: The "Conductor." Orchestrates the 5-minute clock, the smart Advisor, delayed grading, and Home Assistant callbacks.
+* `rl_agent.py`: The "Brain." Contains the Reinforcement Learning math, POMDP state logic, and epsilon-greedy action selection.
+* `ha_api.py`: The "Nervous System." Handles all external communication with Home Assistant (REST API & WebSockets) using a clean callback pattern.
+* `database.py`: The "Long-Term Memory." Handles SQLite connections, schema initialization, and historical history/Q-table queries.
+* `state.py`: The "Short-Term Memory." Holds volatile application memory (RAM), terminal buffers, and JSON file I/O for reboot recovery.
+* `config.py`: The "Blueprint." Loads `.env` variables and holds all global constants and file paths.
 
 ---
 
@@ -17,81 +31,28 @@ A self-hosted, Reinforcement Learning (Q-Learning) backend that integrates direc
 2. **Home Assistant** running on your local network.
 3. A **Long-Lived Access Token** from Home Assistant (Profile -> Security -> Long-Lived Access Tokens).
 4. **Required Home Assistant Entities:**
-   * A Climate entity (Thermostat)
-   * Outdoor Temperature Sensor
-   * Outdoor Humidity Sensor
-   * Cooling Energy Usage Sensor (in kWh)
-   * Weather Forecast Integration (e.g., `weather.forecast_home` from Met.no)
+   * A Climate entity (Thermostat).
+   * Outdoor Temperature and Humidity sensors.
+   * An Energy usage sensor tracking your HVAC system (kWh).
+   * A Weather entity supporting `get_forecasts` for hourly predictions.
 
 ---
 
-## 🚀 Step-by-Step Setup
+## 🚀 Setup & Installation
 
-### 1. Prepare the Environment
-Clone or download the project to your host machine.
-```bash
-git clone <your-repo-url> thermostat-ai
-cd thermostat-ai
-```
-
-Create a virtual environment and install the required dependencies:
+1. Clone the repository and install dependencies:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install fastapi uvicorn httpx websockets python-dotenv jinja2
+pip install -r requirements.txt
+
 ```
 
-### 2. Configure Environment Variables
-Create a `.env` file in the root directory of the project:
-```bash
-nano .env
-```
-Paste the following template and replace the `<my_token>` and sensor IDs with your actual Home Assistant data:
+2. Create a `.env` file in the root directory (use the provided `config.py` as a reference for required variables).
+3. Create a `systemd` service to run the brain in the background. Note the critical `PYTHONUNBUFFERED` flag. Because `main.py` uses a custom `ConsoleInterceptor` to push terminal logs to the web dashboard, Python must be forced to flush its output immediately.
 
-```ini
-# Home Assistant Connection
-HA_ADD=<your_homeassistant_instance_ip>:8123
-HA_TOKEN=<your_long_lived_access_token_here>
+Create `/etc/systemd/system/thermostat.service`:
 
-# Server Configuration
-IP=0.0.0.0
-PORT=3000
-
-# Home Assistant Entities
-THERMOSTAT_ENTITY_ID=climate.home
-COOLING_ENERGY_USAGE_SENSOR=sensor.cooling_energy_usage
-OUTSIDE_TEMP_SENSOR=sensor.outside_temperature
-OUTSIDE_HUMD_SENSOR=sensor.outside_humidity
-MET_IO_FORCAST=weather.forecast_home
-```
-
-### 3. Initialize the UI Templates
-Ensure you have a `templates` directory with your `index.html` file inside it for the FastAPI dashboard to render correctly.
-```bash
-mkdir templates
-# Place your index.html inside this folder
-```
-
-### 4. Test the Application
-Run the server manually to ensure it connects to Home Assistant and initializes the `brain.db` SQLite database.
-```bash
-uvicorn main:app --host 0.0.0.0 --port 3000
-```
-* Verify the console says `✅ Authentication successful`.
-* Open a browser and navigate to `http://<your-ip>:3000` to view the dashboard.
-* Press `CTRL+C` to stop the server.
-
----
-
-## 🛠️ Production Deployment (systemd)
-To ensure the AI runs continuously in the background and starts on boot, deploy it as a systemd service. **Crucially, we must disable Python's output buffering so the logs stream in real-time.**
-
-1. Create the service file:
-```bash
-sudo nano /etc/systemd/system/thermostat.service
-```
-
-2. Paste the following configuration (adjust `/home/squad/thermostat-ai` and the `User` to match your actual paths):
 ```ini
 [Unit]
 Description=AI Thermostat Control Node
@@ -101,36 +62,59 @@ After=network.target
 Type=simple
 User=squad
 WorkingDirectory=/home/squad/thermostat-ai
-# Activate the virtual environment and run the script
+# Activate the virtual environment and run the modular entry point
 ExecStart=/home/squad/thermostat-ai/venv/bin/python3 main.py
 Restart=always
 RestartSec=5
 
-# CRITICAL: Forces Python to flush logs immediately so you can monitor decisions
+# CRITICAL: Forces Python to flush logs immediately for the FastAPI Web Dashboard
 Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
+
 ```
 
-3. Enable and start the service:
+4. Enable and start the service:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable thermostat.service
 sudo systemctl start thermostat.service
-```
 
-4. Monitor the AI's real-time thoughts and decisions:
-```bash
-journalctl -u thermostat.service -f
 ```
 
 ---
 
+### Enabling the Web UI Restart Button
+
+The web dashboard includes a button to hard-reboot the AI system. Because the Python script runs under the standard user `squad`, it does not inherently have permission to execute `systemctl restart`.
+
+To allow the web button to work securely without asking for a password, you must grant the `squad` user permission to restart *only* this specific service.
+
+1. Open the sudoers file safely:
+
+```bash
+sudo visudo
+
+```
+
+2. Add this exact line to the bottom of the file (replace `squad` if your linux user is named differently):
+
+```text
+squad ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart thermostat.service
+
+```
+
+3. Save and exit. The "Restart System" button on the webpage will now seamlessly bounce the `systemd` service.
+
+---
+
 ## 🧠 How the AI Learns
-The AI breaks the day into **2-hour blocks** (e.g., Early Afternoon, Late Afternoon, Peak Hours).
-* **Every 5 minutes:** It checks sensors, evaluates the weather, and ensures the target temperature is being met.
-* **At the end of a block:** It "grades" its performance.
-  * **Rewards:** Generated by keeping the human comfortable (+10 base score).
-  * **Penalties:** Energy usage (kWh) is subtracted from the score. During Peak Hours, energy penalties are multiplied by 4x. Manual overrides apply a massive -20 point penalty.
-* Over time, the Q-Table populates with the most efficient strategies for specific weather conditions, effectively learning your home's thermal efficiency limits.
+
+The AI breaks the day into granular time blocks (e.g., Early Afternoon, Peak Hours, Overnight).
+
+* **Every 5 minutes:** It checks sensors, fetches weather, checks the smart Advisor, and ensures the target temperature is being met.
+* **At block transitions:** It "grades" the previous block's performance.
+* **Rewards:** Generated by keeping the human comfortable (+10 base score).
+* **Penalties:** Energy usage (kWh) and Time-to-Target are subtracted from the score. During Peak Hours, energy penalties are heavily multiplied. Manual overrides apply a massive instant penalty.
