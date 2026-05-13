@@ -28,6 +28,8 @@ class ConsoleInterceptor:
     def __init__(self, original_stdout):
         """Initiates the console output"""
         self.original_stdout = original_stdout
+        self.last_message = None
+        self.repeat_count = 1
 
     def write(self, text):
         """Writes the text to the console output"""
@@ -36,10 +38,21 @@ class ConsoleInterceptor:
 
         # 2. Filter out empty lines and Uvicorn API request spam
         clean_text = text.strip()
-        if clean_text:
-            # Uvicorn access logs usually contain "HTTP/1.1" or "GET /api"
-            if "HTTP/1.1" not in clean_text and "GET /api" not in clean_text:
-                terminal_buffer.append(clean_text)
+        if not clean_text or "HTTP/1.1" in clean_text or "GET /api" in clean_text:
+            return
+
+        # 2. Check for repeats
+        if clean_text == self.last_message:
+            self.repeat_count += 1
+            # Pop the previous version so we can replace it with the "count" version
+            if terminal_buffer:
+                terminal_buffer.pop()
+            terminal_buffer.append(f"{self.repeat_count}x {clean_text}")
+        else:
+            # New unique message
+            self.last_message = clean_text
+            self.repeat_count = 1
+            terminal_buffer.append(clean_text)
 
     def flush(self):
         """Flushes the console output"""
