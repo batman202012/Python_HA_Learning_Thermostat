@@ -41,16 +41,21 @@ class ConsoleInterceptor:
         if not clean_text or "HTTP/1.1" in clean_text or "GET /api" in clean_text:
             return
 
-        # 2. Check for repeats
-        if clean_text == self.last_message:
+        # 3. We strip off the variable "Live Reward" part to see if the core event is the same
+        core_message = clean_text
+        if "Live Reward:" in clean_text:
+            core_message = clean_text.split("| Live Reward:")[0].strip()
+
+        # 4. Check for repeats
+        if self.last_message and core_message == self.last_message:
             self.repeat_count += 1
-            # Pop the previous version so we can replace it with the "count" version
             if terminal_buffer:
                 terminal_buffer.pop()
+            # We keep the NEWEST version (with the updated reward) but add the multiplier
             terminal_buffer.append(f"{self.repeat_count}x {clean_text}")
         else:
-            # New unique message
-            self.last_message = clean_text
+            # This is a genuinely new event (e.g., block transition or manual override)
+            self.last_message = core_message
             self.repeat_count = 1
             terminal_buffer.append(clean_text)
 
