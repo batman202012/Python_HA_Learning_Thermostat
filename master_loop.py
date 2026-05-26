@@ -222,7 +222,15 @@ async def grade_current_block(block_name, is_peak: bool):
 
         # 3. Reward Calculation
         overrides = state.APP_STATE.get("user_override_count", 0)
-        base_reward = rl_agent.calculate_reward(overrides, kwh_used=actual_kwh_used, is_peak_pricing=is_peak)
+        had_venting = state.APP_STATE.get("block_had_aq_venting", False)
+        state.APP_STATE["block_had_aq_venting"] = False
+
+        base_reward = rl_agent.calculate_reward(
+            overrides,
+            kwh_used=actual_kwh_used,
+            is_peak_pricing=is_peak
+            block_had_aq_venting=had_venting
+        )
 
         # Final score for this 2-hour window
         reward = base_reward - time_penalty
@@ -255,49 +263,70 @@ async def master_clock():
             # Inside master_loop.py -> master_clock() 5-minute interval loop:
 
             if config.ENABLE_AQ_FEATURE:
-                # 1. Fetch all three sensor values concurrently to preserve speed
-                voc_task = ha_api.get_sensor_state(config.AQ_VOC_SENSOR) if config.AQ_VOC_SENSOR else asyncio.sleep(0, result=None)
-                nox_task = ha_api.get_sensor_state(config.AQ_NOX_SENSOR) if config.AQ_NOX_SENSOR else asyncio.sleep(0, result=None)
-                co2_task = ha_api.get_sensor_state(config.AQ_CO2_SENSOR) if config.AQ_CO2_SENSOR else asyncio.sleep(0, result=None)
-
-                voc, nox, co2 = await asyncio.gather(voc_task, nox_task, co2_task)
+                aq_data = await ha_api.get_all_air_quality_metrics()
+                voc = aq_data["voc"]
+                nox = aq_data["nox"]
+                co2 = aq_data["co2"]
 
                 is_venting = state.APP_STATE.get("is_currently_venting", False)
 
-                # 2. Determine if ANY sensor is breaching its target safe-threshold
-                voc_triggered = (voc is not None and voc >= config.AQ_VOC_THRESHOLD)
-                nox_triggered = (nox is not None and nox >= config.AQ_NOX_THRESHOLD)
-                co2_triggered = (co2 is not None and co2 >= config.AQ_CO2_THRESHOLD)
+                voc_triggered = False
+                if voc is not None:
+                    if voc >= config.AQ_VOC_THRESHOLD:
+                        voc_triggered = True
 
-                # 3. Determine if ALL active sensors have returned to healthy states
-                voc_clean = (voc is None or voc <= config.AQ_VOC_CLEAN_THRESHOLD)
-                nox_clean = (nox is None or nox <= config.AQ_NOX_CLEAN_THRESHOLD)
-                co2_clean = (co2 is None or co2 <= config.AQ_CO2_CLEAN_THRESHOLD)
+                nox_triggered = False
+                if nox is not None:
+                    if nox >= config.AQ_NOX_THRESHOLD:
+                        nox_triggered = True
 
-                # --- EXECUTION SWITCHBOARD ---
+                co2_triggered = False
+                if co2 is not None:
+                    if co2 >= config.AQ_CO2_THRESHOLD:
+                        co2_triggered = True
 
-                # Condition A: We aren't venting, but something just spiked
-                if not is_venting and (voc_triggered or nox_triggered or co2_triggered):
-                    reason = []
-                    if voc_triggered:
-                        reason.append(f"VOC Index: {voc}")
-                    if nox_triggered:
-                        reason.append(f"NOx Index: {nox}")
-                    if co2_triggered:
-                        reason.append(f"CO2 PPM: {co2}")
+                voc_clean = False
+                if voc is None:
+                    voc_clean = True
+                elif voc <= config.AQ_VOC_CLEAN_THRESHOLD:
+                    voc_clean = True
 
-                    print(f"⚠️ SENS55 Air Quality Alert! Spikes detected: [{', '.join(reason)}]",
-                          ". Turning on swamp cooler ventilation.")
-                    await ha_api.set_swamp_cooler(True)
-                    state.APP_STATE["is_currently_venting"] = True
-                    state.APP_STATE["block_had_aq_venting"] = True
-                    # Informs the high-level ML agent to forgive changes
+                nox_clean = False
+                if nox is None:
+                    nox_clean = True
+                elif nox <= config.AQ_NOX_CLEAN_THRESHOLD:
+                    nox_clean = True
 
-                # Condition B: We are venting, and ALL pollutants have cleared out safely
-                elif is_venting and (voc_clean and nox_clean and co2_clean):
-                    print(f"✅ SENS55 Comfort Restored. (VOC: {voc}, NOx: {nox}, CO2: {co2}). Closing ventilation.")
-                    await ha_api.set_swamp_cooler(False)
-                    state.APP_STATE["is_currently_venting"] = False
+                co2_clean = False
+                if co2 is None:
+                    co2_clean = True
+                elif co2 <= config.AQ_CO2_CLEAN_THRESHOLD:
+                    co2_clean = True
+
+                any_triggered = voc_triggered or nox_triggered or co2_triggered
+                all_clean = voc_clean and nox_clean and co2_clean
+
+                if not is_venting:
+                    if any_triggered:
+                        reason = []
+                        if voc_triggered:
+                            reason.append(f"VOC Index: {voc}")
+                        if nox_triggered:
+                            reason.append(f"NOx Index: {nox}")
+                        if co2_triggered:
+                            reason.append(f"CO2 PPM: {co2}")
+
+                        msg = ", ".join(reason)
+                        print(f"⚠️ SENS55 AQ Alert! Spikes: [{msg}]. Venting.")
+                        await ha_api.set_swamp_cooler(True)
+                        state.APP_STATE["is_currently_venting"] = True
+                        state.APP_STATE["block_had_aq_venting"] = True
+
+                elif is_venting:
+                    if all_clean:
+                        print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
+                        await ha_api.set_swamp_cooler(False)
+                        state.APP_STATE["is_currently_venting"] = False
 
             state.APP_STATE["last_evaluated_minute"] = now.minute
             try:

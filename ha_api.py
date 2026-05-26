@@ -169,12 +169,17 @@ async def listen_to_ha():
 
 async def set_swamp_cooler(turn_on: bool):
     """Turns the swamp cooler on or off via Home Assistant REST API."""
-    if not config.ENABLE_AQ_FEATURE or not config.SWAMP_COOLER_ENTITY_ID:
+    if not config.ENABLE_AQ_FEATURE:
+        return
+    if not config.SWAMP_COOLER_ENTITY_ID:
         return
 
-    # Automatically extracts the domain (e.g., 'switch', 'fan', or 'input_boolean')
     domain = config.SWAMP_COOLER_ENTITY_ID.split(".")[0]
-    service = "turn_on" if turn_on else "turn_off"
+    if turn_on:
+        service = "turn_on"
+    else:
+        service = "turn_off"
+
     url = f"http://{config.HA_ADD}/api/services/{domain}/{service}"
 
     headers = {
@@ -190,3 +195,28 @@ async def set_swamp_cooler(turn_on: bool):
                 print(f"⚠️ Swamp cooler service call failed: {response.text}")
         except Exception as e:
             print(f"⚠️ Failed to toggle swamp cooler via API: {e}")
+
+
+async def get_all_air_quality_metrics() -> dict:
+    """Fetches VOC, NOx, and CO2 values concurrently from HA."""
+    if not config.ENABLE_AQ_FEATURE:
+        return {"voc": None, "nox": None, "co2": None}
+
+    if config.AQ_VOC_SENSOR:
+        voc_task = get_sensor_state(config.AQ_VOC_SENSOR)
+    else:
+        voc_task = asyncio.sleep(0, result=None)
+
+    if config.AQ_NOX_SENSOR:
+        nox_task = get_sensor_state(config.AQ_NOX_SENSOR)
+    else:
+        nox_task = asyncio.sleep(0, result=None)
+
+    if config.AQ_CO2_SENSOR:
+        co2_task = get_sensor_state(config.AQ_CO2_SENSOR)
+    else:
+        co2_task = asyncio.sleep(0, result=None)
+
+    voc, nox, co2 = await asyncio.gather(voc_task, nox_task, co2_task)
+
+    return {"voc": voc, "nox": nox, "co2": co2}

@@ -7,19 +7,21 @@ import random
 import sqlite3
 import config
 
-def calculate_reward(user_overrides: int, kwh_used: float, is_peak_pricing: bool, block_had_aq_venting: bool = False):
-    """Calculates the success score of a completed cycle with AQ forgiveness logic."""
+def calculate_reward(
+    user_overrides: int,
+    kwh_used: float,
+    is_peak_pricing: bool,
+    block_had_aq_venting: bool = False
+):
+    """Calculates the success score with AQ forgiveness logic."""
     reward = 0
 
     if user_overrides == 0:
         reward += 10
     else:
-        # Check if the feature is toggled on and venting took place during this multi-hour block
         if config.ENABLE_AQ_FEATURE and block_had_aq_venting:
-            # Forgive the agent. The user manually changed the temp because
-            # venting outside air naturally altered the indoor comfort.
-            reward -= (2 * user_overrides)  # Drop to a negligible -2 penalty per override instead of -20
-            print("🍃 Reward Note: Override penalty minimized due to active ventilation event.")
+            reward -= (2 * user_overrides)
+            print("🍃 Reward Note: Override penalty minimized due to venting.")
         else:
             reward -= (20 * user_overrides)
 
