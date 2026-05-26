@@ -441,6 +441,14 @@ async def master_clock():
                         state.APP_STATE["pending_grade"] = None
                         state.clear_waiting_room()
 
+                    # Establish the fresh block start time and sync it to the database
+                    current_start = datetime.now()
+                    state.APP_STATE["block_start_time"] = current_start
+                    database.save_session_state(
+                        "block_start_time",
+                        current_start.isoformat()
+                    )
+
                     if state.APP_STATE.get("is_manual_override"):
                         print("🛑 Human intervened. AI gets no future credit. Wiping waiting room.")
                         state.APP_STATE["pending_grade"] = None
