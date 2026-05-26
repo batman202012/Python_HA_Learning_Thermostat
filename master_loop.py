@@ -228,7 +228,7 @@ async def grade_current_block(block_name, is_peak: bool):
         base_reward = rl_agent.calculate_reward(
             overrides,
             kwh_used=actual_kwh_used,
-            is_peak_pricing=is_peak
+            is_peak_pricing=is_peak,
             block_had_aq_venting=had_venting
         )
 
