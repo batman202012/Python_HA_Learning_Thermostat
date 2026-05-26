@@ -166,3 +166,27 @@ async def listen_to_ha():
         except Exception as e:
             print(f"WebSocket Error: {e}")
             await asyncio.sleep(5)
+
+async def set_swamp_cooler(turn_on: bool):
+    """Turns the swamp cooler on or off via Home Assistant REST API."""
+    if not config.ENABLE_AQ_FEATURE or not config.SWAMP_COOLER_ENTITY_ID:
+        return
+
+    # Automatically extracts the domain (e.g., 'switch', 'fan', or 'input_boolean')
+    domain = config.SWAMP_COOLER_ENTITY_ID.split(".")[0]
+    service = "turn_on" if turn_on else "turn_off"
+    url = f"http://{config.HA_ADD}/api/services/{domain}/{service}"
+
+    headers = {
+        "Authorization": f"Bearer {config.HA_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {"entity_id": config.SWAMP_COOLER_ENTITY_ID}
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+            if response.status_code != 200:
+                print(f"⚠️ Swamp cooler service call failed: {response.text}")
+        except Exception as e:
+            print(f"⚠️ Failed to toggle swamp cooler via API: {e}")
