@@ -9,6 +9,10 @@ A self-hosted, Reinforcement Learning (Q-Learning) backend that integrates direc
 * **Weather-Aware Advisor:** Uses hourly forecasts to preemptively cool the house before afternoon heat waves, overriding the AI if it hasn't experienced the upcoming weather enough times.
 * **Human Comfort Guard:** Detects manual thermostat overrides via HA WebSockets and applies instant learning penalties (-20 points) so the AI learns not to make you uncomfortable.
 * **Live Console Dashboard:** A custom FastAPI interceptor hijacks the system's `stdout`, broadcasting real-time AI thoughts, transitions, and systemd logs directly to the local web UI.
+* **SENS55 Environmental Air Quality Micro Rail:** Monitored via a dual-layer
+  control strategy. High-level thermal optimization is handled at the macro time-block
+  level, while a concurrent 5-minute micro rail triggers localized ventilation loops
+  to flush out dangerous indoor air quality spikes (VOC, NOx, and CO2) instantly.
 
 ---
 
@@ -83,6 +87,31 @@ sudo systemctl enable thermostat.service
 sudo systemctl start thermostat.service
 
 ```
+
+### 🍃 Air Quality & Ventilation Control Configuration
+
+If you possess a Sensirion SENS55 sensor cluster (or similar environment monitors mapped to Home Assistant entities), you can toggle independent safety tracking thresholds directly via your `.env` variables:
+
+| Variable Environment Key | Expected Data Type | Functional Application / Baseline Notes |
+| :--- | :--- | :--- |
+| `ENABLE_AQ_FEATURE` | Boolean (`True`/`False`) | Toggles the active multi-sensor polling micro rail framework. |
+| `SWAMP_COOLER_ENTITY_ID` | String | Home Assistant entity domain tracking your clean air injection device. |
+| `AQ_VOC_SENSOR` | String | Volatile Organic Compounds sensor index identifier tracking key. |
+| `AQ_VOC_THRESHOLD` | Float | Upper index threshold breach pointing to trigger active house venting. |
+| `AQ_VOC_CLEAN_THRESHOLD` | Float | Safe hysteresis clear index targeting system sleep recovery. |
+| `AQ_NOX_SENSOR` | String | Nitrogen Oxides environment sensor tracking entity domain path. |
+| `AQ_NOX_THRESHOLD` | Float | Upper boundary index parameter to kick off ventilation operations. |
+| `AQ_NOX_CLEAN_THRESHOLD` | Float | Low deadband target to indicate localized NOx index normalization. |
+| `AQ_CO2_SENSOR` | String | Carbon Dioxide PPM concentration metric tracking data pipeline. |
+| `AQ_CO2_THRESHOLD` | Float | Safety parts-per-million constraint line to engage outside air flushes. |
+| `AQ_CO2_CLEAN_THRESHOLD` | Float | Target CO2 parts-per-million depth confirming indoor recovery. |
+
+### 🧠 Double-Layer ML Forgiveness Loop Mechanics
+
+To prevent micro-adjustments from disrupting macro reinforcement learning convergence, the thermostat splits decision frequencies:
+1. **Macro-Planning:** The reinforcement learning engine computes thermal block decisions over long, multi-hour sequences.
+2. **Micro-Rails:** A 5-minute polling tick monitors pollutant indices independently. If a sensor limit is exceeded, it locks down ventilation actuators to flush the home regardless of current time-block instructions.
+3. **Reward Forgiveness Handshake:** Since outdoor air introduces non-linear temperature spikes and manual user shifts, the system triggers memory tracking flags. When evaluating target weights at block transitions, override penalties drop from a harsh `-20` to an isolated `-2`, ensuring the high-level agent isn't wrongfully penalized for health-centric override sequences.
 
 ---
 
