@@ -457,14 +457,6 @@ async def master_clock():
                         state.APP_STATE["pending_grade"] = None
                         state.clear_waiting_room()
 
-                    # Establish the fresh block start time and sync it to the database
-                    current_start = datetime.now()
-                    state.APP_STATE["block_start_time"] = current_start
-                    database.save_session_state(
-                        "block_start_time",
-                        current_start.isoformat()
-                    )
-
                     is_override = state.APP_STATE.get("is_manual_override")
                     had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
                     bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
@@ -497,10 +489,10 @@ async def master_clock():
                     state.APP_STATE["active_block"] = current_block
                     state.APP_STATE["start_kwh"] = current_kwh
                     state.APP_STATE["user_override_count"] = 0
-                    state.APP_STATE["block_start_time"] = datetime.now()
                     state.APP_STATE["target_reached_time"] = None
                     state.APP_STATE["is_manual_override"] = False
                     state.APP_STATE["block_had_aq_venting"] = False
+                    state.APP_STATE["block_start_time"] = datetime.now()
 
                     database.save_session_state("active_block", current_block)
                     database.save_session_state("start_kwh", current_kwh)
