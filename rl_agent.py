@@ -105,7 +105,9 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
 
     q_scores = {row[0]: row[1] for row in results}
 
+    # Map database records to action scores and track historical experience
     untried = [a for a in available_actions if a not in q_scores]
+    total_visits = sum(row[2] or 0 for row in results)
 
     # Ensure all available actions are in the dictionary before we pick the max!
     for action in available_actions:
@@ -114,8 +116,16 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
 
     print(f"🔍 DEBUG X-RAY: Found in DB -> {q_scores}")
 
-    # 3. Epsilon-Greedy Logic (15% chance to experiment)
-    epsilon = 0.20
+    # Calculate a decaying exploration rate based on total state visits
+    base_epsilon = 0.20
+    decay_rate = 0.05
+    min_epsilon = 0.05
+    # Apply inverse-growth decay to reduce exploration as experience grows
+    epsilon = max(
+        min_epsilon,
+        base_epsilon / (1.0 + (total_visits * decay_rate))
+    )
+
     is_exploring = random.random() < epsilon
 
     if not q_scores or is_exploring:
