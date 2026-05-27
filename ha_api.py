@@ -38,8 +38,8 @@ async def trigger_cooling(target_temp: float):
     try:
         # Reuse the persistent client instance instead of creating a new pool
         response = await _client.post(
-            config.HA_URL, 
-            headers=headers, 
+            config.HA_URL,
+            headers=headers,
             json=payload
         )
         return response.status_code
@@ -53,7 +53,7 @@ async def get_sensor_state(entity_id: str):
         "Authorization": f"Bearer {config.HA_TOKEN}", 
         "Content-Type": "application/json"
     }
-    
+
     try:
         response = await _client.get(
             f"{config.HA_URL_STATE}{entity_id}", 
@@ -62,7 +62,7 @@ async def get_sensor_state(entity_id: str):
         if response.status_code == 200:
             data = response.json()
             state_val = data.get('state')
-            
+
             # Guard against common non-numeric availability states in HA
             if state_val in [None, 'unavailable', 'unknown', 'none']:
                 return None
