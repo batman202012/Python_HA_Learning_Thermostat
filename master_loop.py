@@ -65,25 +65,42 @@ async def handle_thermostat_change(state_data):
         state.APP_STATE["user_override_count"] += 1
         # --- 1. THE Q-TABLE PENALTY ---
         # Make sure we don't punish an empty state or a state that is already manual
-        if current_ai_action and current_ai_action not in ["Manual", "None"]:
-            print(f"💥 WRIST SLAP: Applying a -20.0 penalty to AI strategy '{current_ai_action}'.")
+        if state.APP_STATE.get("block_had_aq_venting", False):
+            live_penalty = -2.0
+            print(
+                f"🍃 Forgiveness Active: Scaling down penalty on "
+                f"'{current_ai_action}' due to active AQ venting."
+            )
+        else:
+            live_penalty = -20.0
+            print(
+                f"💥 WRIST SLAP: Applying a -20.0 penalty to AI "
+                f"strategy '{current_ai_action}'."
+            )
 
-            # Retrieve the environment state at the exact moment of failure
-            # (Adjust these variable fetches to match how your script tracks them)
-            time_block = state.APP_STATE.get("active_block", "Mid-Day")
-            if time_block == "Peak Hours":
-                is_peak = 1
-            else:
-                is_peak = 0
-            f_temp = state.APP_STATE.get("last_f_temp", 75.0)
-            f_humid = state.APP_STATE.get("last_f_humid", 20.0)
+        # Retrieve the environment state at the exact moment of failure
+        # (Adjust these variable fetches to match how your script tracks them)
+        time_block = state.APP_STATE.get("active_block", "Mid-Day")
+        if time_block == "Peak Hours":
+            is_peak = 1
+        else:
+            is_peak = 0
+        f_temp = state.APP_STATE.get("last_f_temp", 75.0)
+        f_humid = state.APP_STATE.get("last_f_humid", 20.0)
 
-            # Fetch the peak temp from memory to accurately penalize the exact state
-            peak_temp = state.APP_STATE.get("forecast_max_temp", None)
-            temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
+        # Fetch the peak temp from memory to accurately penalize the exact state
+        peak_temp = state.APP_STATE.get("forecast_max_temp", None)
+        temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
 
-            # Deliver the instant Bellman update
-            database.update_q_score(time_block, temp_band, humid_band, is_peak, current_ai_action, -20.0)
+        # Deliver the instant Bellman update
+        database.update_q_score(
+                time_block,
+                temp_band,
+                humid_band,
+                is_peak,
+                current_ai_action,
+                live_penalty
+            )
 
         # 3. Sync to DB and Memory
         sync_ha_to_schedule(new_temp)
@@ -223,7 +240,6 @@ async def grade_current_block(block_name, is_peak: bool):
         # 3. Reward Calculation
         overrides = state.APP_STATE.get("user_override_count", 0)
         had_venting = state.APP_STATE.get("block_had_aq_venting", False)
-        state.APP_STATE["block_had_aq_venting"] = False
 
         base_reward = rl_agent.calculate_reward(
             overrides,
@@ -449,17 +465,28 @@ async def master_clock():
                         current_start.isoformat()
                     )
 
-                    if state.APP_STATE.get("is_manual_override"):
-                        print("🛑 Human intervened. AI gets no future credit. Wiping waiting room.")
+                    is_override = state.APP_STATE.get("is_manual_override")
+                    had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
+                    bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
+
+                    # Evaluate intervention parameters and protect waiting room during AQ events
+                    if is_override and not bypass_wipe:
+                        print("🛑 Human intervened. AI gets no future credit. Wiping room.")
                         state.APP_STATE["pending_grade"] = None
                         state.clear_waiting_room()
                         state.APP_STATE["is_manual_override"] = False
                     else:
+                        if is_override and bypass_wipe:
+                            print("🍃 AQ Venting active. Preserving waiting room credit.")
+
                         print(f"⏳ Placing '{finished_block}' into the JSON waiting room.")
                         pending_data = {
-                            "block": finished_block, "temp": finished_temp_band,
-                            "humid": finished_humid_band, "peak": is_peak,
-                            "action": finished_action, "immediate_reward": current_immediate_reward
+                            "block": finished_block,
+                            "temp": finished_temp_band,
+                            "humid": finished_humid_band,
+                            "peak": is_peak,
+                            "action": finished_action,
+                            "immediate_reward": current_immediate_reward
                         }
                         state.APP_STATE["pending_grade"] = pending_data
                         state.APP_STATE["is_manual_override"] = False
@@ -473,6 +500,7 @@ async def master_clock():
                     state.APP_STATE["block_start_time"] = datetime.now()
                     state.APP_STATE["target_reached_time"] = None
                     state.APP_STATE["is_manual_override"] = False
+                    state.APP_STATE["block_had_aq_venting"] = False
 
                     database.save_session_state("active_block", current_block)
                     database.save_session_state("start_kwh", current_kwh)
@@ -639,11 +667,13 @@ async def master_clock():
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 is_peak = current_block == "Peak Hours"
+                had_venting = state.APP_STATE.get("block_had_aq_venting", False)
 
                 snapshot_reward = rl_agent.calculate_reward(
                     current_overrides,
                     kwh_used=max(0, running_kwh),
-                    is_peak_pricing=is_peak
+                    is_peak_pricing=is_peak,
+                    block_had_aq_venting=had_venting
                 )
 
                 is_ambient_cooling = False
