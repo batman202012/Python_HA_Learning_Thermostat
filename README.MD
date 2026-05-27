@@ -95,7 +95,7 @@ If you possess a Sensirion SENS55 sensor cluster (or similar environment monitor
 | Variable Environment Key | Expected Data Type | Functional Application / Baseline Notes |
 | :--- | :--- | :--- |
 | `ENABLE_AQ_FEATURE` | Boolean (`True`/`False`) | Toggles the active multi-sensor polling micro rail framework. |
-| `SWAMP_COOLER_ENTITY_ID` | String | Home Assistant entity domain tracking your clean air injection device. |
+| `FAN_ENTITY_ID` | String | Home Assistant entity domain tracking your clean air injection device. |
 | `AQ_VOC_SENSOR` | String | Volatile Organic Compounds sensor index identifier tracking key. |
 | `AQ_VOC_THRESHOLD` | Float | Upper index threshold breach pointing to trigger active house venting. |
 | `AQ_VOC_CLEAN_THRESHOLD` | Float | Safe hysteresis clear index targeting system sleep recovery. |

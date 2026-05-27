@@ -334,14 +334,14 @@ async def master_clock():
 
                         msg = ", ".join(reason)
                         print(f"⚠️ SENS55 AQ Alert! Spikes: [{msg}]. Venting.")
-                        await ha_api.set_swamp_cooler(True)
+                        await ha_api.set_fan(True)
                         state.APP_STATE["is_currently_venting"] = True
                         state.APP_STATE["block_had_aq_venting"] = True
 
                 elif is_venting:
                     if all_clean:
                         print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
-                        await ha_api.set_swamp_cooler(False)
+                        await ha_api.set_fan(False)
                         state.APP_STATE["is_currently_venting"] = False
 
             state.APP_STATE["last_evaluated_minute"] = now.minute

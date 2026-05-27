@@ -43,7 +43,7 @@ SAFETY_MAX = float(os.getenv("SAFETY_MAX", "78.0"))
 # --- AIR QUALITY & VENTILATION CONFIG ---
 ENABLE_AQ_ENV = os.getenv("ENABLE_AQ_FEATURE", "False")
 ENABLE_AQ_FEATURE = ENABLE_AQ_ENV.lower() == "true"
-SWAMP_COOLER_ENTITY_ID = os.getenv("SWAMP_COOLER_ENTITY_ID")
+FAN_ENTITY_ID = os.getenv("FAN_ENTITY_ID")
 
 # VOC Configuration
 AQ_VOC_SENSOR = os.getenv("AQ_VOC_SENSOR")
