@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>Python_HA_Learning_Thermostat</Name>
+  <Repository>nado24/python_ha_learning_thermostat:beta</Repository>
+  <Registry>https://hub.docker.com/</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/batman202012/Python_HA_Learning_Thermostat/issues</Support>
+  <Project>https://github.com/batman202012/Python_HA_Learning_Thermostat</Project>
+  <Overview>Reinforcement learning thermostat engine integrated with Home Assistant and SENS55 air quality ventilation rails.</Overview>
+  <Category>HomeAutomation: Status:Beta</Category>
+  <WebUI>http://[IP]:[PORT:3000]</WebUI>
+  <Icon>https://raw.githubusercontent.com/home-assistant/brands/master/core_images/home-assistant.png</Icon>
+
+  <Config Name="FastAPI Web UI" Target="3000" Default="3000" Description="Dashboard interface port deployment." Type="Port" Display="always" Required="true" Mask="false"/>
+  
+  <Config Name="Appdata Storage Workspace" Target="/app" Default="/mnt/user/appdata/python_ha_learning_thermostat/" Description="Persistent array folder for brain.db and execution state metrics." Type="Path" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="Home Assistant Token" Target="HA_TOKEN" Default="" Description="Long-Lived Access Token generated inside Home Assistant profile settings." Type="Variable" Display="always" Required="true" Mask="true"/>
+
+  <Config Name="Home Assistant Address" Target="HA_ADD" Default="127.0.0.1:8123" Description="The local LAN IP address and network port target for your Home Assistant core." Type="Variable" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="Thermostat Entity ID" Target="THERMOSTAT_ENTITY_ID" Default="climate.your_thermostat_name" Description="Target climate entity layout identifier." Type="Variable" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="Enable AQ Features" Target="ENABLE_AQ_FEATURE" Default="True" Description="Enables automated swamp cooler ventilation features and scales override penalties." Type="Variable" Display="always" Required="false" Mask="false"/>
+
+  <Config Name="Swamp Cooler Switch ID" Target="SWAMP_COOLER_ENTITY_ID" Default="switch.your_swamp_cooler_switch" Description="Home Assistant switch used to trigger active venting cycles." Type="Variable" Display="always" Required="false" Mask="false"/>
+</Container>
