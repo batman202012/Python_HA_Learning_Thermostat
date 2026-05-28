@@ -29,4 +29,4 @@ RUN python -m compileall .
 EXPOSE 3000
 
 # Start the application using module-string notation from the root directory context
-CMD ["python", "main.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]

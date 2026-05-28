@@ -10,12 +10,28 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- DIRECTORIES & PATHS ---
+"""
+config.py
+Loads .env variables and holds all global constants and paths.
+"""
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- DIRECTORIES & PATHS ---
+# Relocate persistent engines to the dedicated, mapped data subfolder context
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-"""The base directory for the app"""
-DB_PATH = os.path.join(BASE_DIR, 'brain.db')
-"""Path to brain.db"""
-WAITING_ROOM_FILE = os.path.join(BASE_DIR, 'waiting_room.json')
-"""Path to waiting_room.json"""
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
+# Fallback safely if the system initialization runs prior to permissions handshakes
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+# Separate storage tracks from core executable code files cleanly
+DB_PATH = os.path.join(DATA_DIR, "brain.db")
+WAITING_ROOM_FILE = os.path.join(DATA_DIR, "waiting_room.json")
 
 # --- HOME ASSISTANT CONFIGURATION ---
 HA_ADD = os.getenv("HA_ADD")
