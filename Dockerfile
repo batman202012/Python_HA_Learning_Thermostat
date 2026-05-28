@@ -22,6 +22,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application files into the image
 COPY . .
 
+# Force Python to compile the entry script and verify all underlying imports
+RUN python -m py_compile main.py
+
 # Expose the FastAPI web dashboard port
 EXPOSE 3000
 
