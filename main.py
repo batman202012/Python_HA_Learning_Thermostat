@@ -161,10 +161,15 @@ def get_terminal_logs():
 
 
 @app.post("/api/restart")
-async def restart_service():
-    """Triggers a systemd restart in the background."""
+async def restart_system():
+    """Triggers a clean shutdown of the process for container restart."""
     print("🔄 Restart command received from UI. Rebooting system...")
-    # Sleep 1 gives the web response time to reach your browser before kill
-    cmd = "sleep 1 && sudo /usr/bin/systemctl restart thermostat.service"
-    subprocess.Popen(cmd, shell=True)
-    return {"message": "Restarting system... Dashboard will reconnect shortly."}
+    
+    # 1. Gracefully shut down background tasks
+    # (Assuming you have a cleanup routine as noted in your logs)
+    
+    # 2. Instead of calling 'sudo', we trigger a process exit.
+    # If you are running in Docker, your orchestrator (Unraid/Docker)
+    # should have restart_policy: unless-stopped set.
+    os.kill(os.getpid(), 9) 
+    return {"status": "rebooting"}

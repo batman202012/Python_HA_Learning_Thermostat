@@ -5,6 +5,7 @@
   <Registry>https://hub.docker.com/</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
+  <RestartPolicy>unless-stopped</RestartPolicy>
   <Support>https://github.com/batman202012/Python_HA_Learning_Thermostat/issues</Support>
   <Project>https://github.com/batman202012/Python_HA_Learning_Thermostat</Project>
   <Overview>Reinforcement learning thermostat engine integrated with Home Assistant core connection points, safety rails, and SENS55 environmental air quality control modules.</Overview>
