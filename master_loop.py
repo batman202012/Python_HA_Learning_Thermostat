@@ -650,19 +650,20 @@ async def master_clock():
                 state.APP_STATE["expected_target_temp"] = float(live_target)
                 asyncio.create_task(ha_api.trigger_cooling(live_target))
 
-                # Check if the indoor temperature satisfies the cooling target
-                if indoor_temp <= live_target:
-                    if state.APP_STATE.get("target_reached_time") is None:
-                        reached_now = datetime.now()
-                        state.APP_STATE["target_reached_time"] = datetime.now()
-                        database.save_session_state("target_reached_time", reached_now.isoformat())
-                        print(f"⏱️ Target reached at {datetime.now().strftime('%H:%M:%S')}")
-                else:
-                    # Temperature exceeded target; clear tracking to capture recovery duration
-                    if state.APP_STATE.get("target_reached_time") is not None:
-                        state.APP_STATE["target_reached_time"] = None
-                        database.save_session_state("target_reached_time", "")
-                        print("⚠️ Temperature exceeded target. Resetting tracking clock.")
+                # Check if the indoor temperature satisfies the cooling target'
+                if is_temp_valid:
+                    if indoor_temp <= live_target:
+                        if state.APP_STATE.get("target_reached_time") is None:
+                            reached_now = datetime.now()
+                            state.APP_STATE["target_reached_time"] = datetime.now()
+                            database.save_session_state("target_reached_time", reached_now.isoformat())
+                            print(f"⏱️ Target reached at {datetime.now().strftime('%H:%M:%S')}")
+                    else:
+                        # Temperature exceeded target; clear tracking to capture recovery duration
+                        if state.APP_STATE.get("target_reached_time") is not None:
+                            state.APP_STATE["target_reached_time"] = None
+                            database.save_session_state("target_reached_time", "")
+                            print("⚠️ Temperature exceeded target. Resetting tracking clock.")
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 is_peak = current_block == "Peak Hours"
