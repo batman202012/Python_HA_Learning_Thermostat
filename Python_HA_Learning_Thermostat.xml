@@ -1,14 +1,21 @@
 <?xml version="1.0"?>
 <Container version="2">
+<<<<<<< Updated upstream
   <Name>HA-Learning-Thermostat</Name>
   <Repository>nado24/python-ha-learning-thermostat:latest</Repository>
   <Registry>https://hub.docker.com/r/nado24/python-ha-learning-thermostat/</Registry>
+=======
+  <Name>Python_HA_Learning_Thermostat</Name>
+  <Repository>nado42/python-ha-learning-thermostat:beta</Repository>
+  <Registry>https://hub.docker.com/</Registry>
+>>>>>>> Stashed changes
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
   <Support>https://github.com/batman202012/Python_HA_Learning_Thermostat/issues</Support>
   <Project>https://github.com/batman202012/Python_HA_Learning_Thermostat</Project>
+<<<<<<< Updated upstream
   <Overview>An intelligent, tabular reinforcement learning thermostat that integrates natively with Home Assistant. It optimizes heating/cooling schedules based on external ambient conditions, pricing constraints, and air quality metrics while forgiving manual human intervention.</Overview>
   <Category>HomeAutomation: Status:Stable</Category>
   <WebUI>http://[IP]:[PORT:3000]/</WebUI>
@@ -131,4 +138,42 @@
       <Description>Air quality recovery clearance parameters shutting down manual vent routines.</Description>
     </Variable>
   </Environment>
+=======
+  <Overview>Reinforcement learning thermostat engine integrated with Home Assistant core connection points, safety rails, and SENS55 environmental air quality control modules.</Overview>
+  <Category>HomeAutomation: Status:Beta</Category>
+  <WebUI>http://[IP]:[PORT:3000]</WebUI>
+  <Icon>https://raw.githubusercontent.com/home-assistant/brands/master/core_images/home-assistant.png</Icon>
+
+  <Config Name="FastAPI Web UI" Target="3000" Default="3000" Description="Web UI dashboard tracking page interface." Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="FastAPI Host Bind IP" Target="IP" Default="0.0.0.0" Description="Host server interface target address." Type="Variable" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="Appdata Storage Workspace" Target="/app" Default="/mnt/user/appdata/python_ha_learning_thermostat/" Description="Persistent workspace volume location for maintaining your runtime training tables." Type="Path" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="Home Assistant Token" Target="HA_TOKEN" Default="your_long_lived_access_token_here" Description="Long-Lived Access Token string sequence generated out of your profile parameters." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Home Assistant Network Address" Target="HA_ADD" Default="127.0.0.1:8123" Description="Local LAN endpoint address hosting your target instance." Type="Variable" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="Thermostat Control ID" Target="THERMOSTAT_ENTITY_ID" Default="climate.your_thermostat_name" Description="Core climate tracking unit locator signature." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Energy Consumption Sensor" Target="COOLING_ENERGY_USAGE_SENSOR" Default="sensor.cooling_energy_usage" Description="Home Assistant entity recording cumulative real-time power metrics." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Outdoor Temperature Sensor" Target="OUTSIDE_TEMP_SENSOR" Default="sensor.outside_temperature" Description="Telemetry path identifying localized ambient thermal readings." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Outdoor Humidity Sensor" Target="OUTSIDE_HUMD_SENSOR" Default="sensor.outside_humidity" Description="Telemetry point registering historical or live moisture ratios." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Weather Forecast Service Provider" Target="MET_IO_FORCAST" Default="weather.forecast_home" Description="Target service framework handling forward pricing optimization outlooks." Type="Variable" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="Thermostat Lower Bound Safety Constraint" Target="SAFETY_MIN" Default="68.0" Description="Absolute thermal floor restrictions allocated to system policies." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Thermostat Upper Bound Safety Constraint" Target="SAFETY_MAX" Default="78.0" Description="Absolute thermal ceiling restrictions allocated to system policies." Type="Variable" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="Toggle Air Quality Logic Processing" Target="ENABLE_AQ_FEATURE" Default="True" Description="Sets automated state checking sequences and alternate error handling policies." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Ventilation Mechanical Actuator Switch ID" Target="FAN_ENTITY_ID" Default="switch.your_swamp_cooler_switch" Description="Home Assistant asset targeted during automated override clearing sequences." Type="Variable" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="VOC Metric Collection Path" Target="AQ_VOC_SENSOR" Default="sensor.sens55_voc_index" Description="Index identifier targeting specific organic data streams." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="VOC Volatile Limit Threshold" Target="AQ_VOC_THRESHOLD" Default="150.0" Description="Limit constraint mapping triggering penalty minimization loops." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="VOC Normalized Clearance Point" Target="AQ_VOC_CLEAN_THRESHOLD" Default="100.0" Description="Clearance metrics determining localized target resets." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="NOx Metric Collection Path" Target="AQ_NOX_SENSOR" Default="sensor.sens55_nox_index" Description="Index identifier targeting specific nitrogen compound data streams." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NOx Volatile Limit Threshold" Target="AQ_NOX_THRESHOLD" Default="120.0" Description="Limit constraint mapping triggering penalty minimization loops." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="NOx Normalized Clearance Point" Target="AQ_NOX_CLEAN_THRESHOLD" Default="70.0" Description="Clearance metrics determining localized target resets." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="CO2 Metric Collection Path" Target="AQ_CO2_SENSOR" Default="sensor.sens55_co2_ppm" Description="Index identifier tracking total background gas density metrics." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="CO2 Volatile Limit Threshold" Target="AQ_CO2_THRESHOLD" Default="1100.0" Description="Limit constraint mapping triggering penalty minimization loops." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="CO2 Normalized Clearance Point" Target="AQ_CO2_CLEAN_THRESHOLD" Default="800.0" Description="Clearance metrics determining localized target resets." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+>>>>>>> Stashed changes
 </Container>
