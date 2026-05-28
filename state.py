@@ -49,7 +49,9 @@ APP_STATE = {
     "forecast_max_humidity": None,
     "pending_grade": load_waiting_room(),
     "last_f_temp": None,
-    "last_f_humid": None
+    "last_f_humid": None,
+    "is_currently_venting": False,
+    "block_had_aq_venting": False
 }
 
 if APP_STATE["pending_grade"]:
