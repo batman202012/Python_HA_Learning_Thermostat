@@ -3,6 +3,7 @@ Learning Thermostat Backend
 Handles scheduling, Home Assistant integration, and Reinforcement Learning.
 """
 
+import os
 import sys
 import sqlite3
 import asyncio
@@ -164,12 +165,12 @@ def get_terminal_logs():
 async def restart_system():
     """Triggers a clean shutdown of the process for container restart."""
     print("🔄 Restart command received from UI. Rebooting system...")
-    
+
     # 1. Gracefully shut down background tasks
     # (Assuming you have a cleanup routine as noted in your logs)
-    
+
     # 2. Instead of calling 'sudo', we trigger a process exit.
     # If you are running in Docker, your orchestrator (Unraid/Docker)
     # should have restart_policy: unless-stopped set.
-    os.kill(os.getpid(), 9) 
+    os.kill(os.getpid(), 9)
     return {"status": "rebooting"}
