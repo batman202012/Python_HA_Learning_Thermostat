@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>HA-Learning-Thermostat</Name>
-  <Repository>yourusername/python-ha-learning-thermostat:latest</Repository>
-  <Registry>https://hub.docker.com/r/yourusername/python-ha-learning-thermostat/</Registry>
+  <Repository>nado24/python-ha-learning-thermostat:latest</Repository>
+  <Registry>https://hub.docker.com/r/nado24/python-ha-learning-thermostat/</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
