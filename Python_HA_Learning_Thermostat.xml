@@ -1,11 +1,9 @@
-<?xml version="1.0"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
-  <Name>HA-Learning-Thermostat</Name>
-  <Repository>nado24/python-ha-learning-thermostat:latest</Repository>
-  <Registry>https://hub.docker.com/r/nado24/python-ha-learning-thermostat/</Registry>
+  <Name>Python_HA_Learning_Thermostat</Name>
+  <Repository>nado24/python_ha_learning_thermostat:beta</Repository>
+  <Registry>https://hub.docker.com/</Registry>
   <Network>bridge</Network>
-  <MyIP/>
-  <Shell>sh</Shell>
   <Privileged>false</Privileged>
   <Support>https://github.com/batman202012/Python_HA_Learning_Thermostat/issues</Support>
   <Project>https://github.com/batman202012/Python_HA_Learning_Thermostat</Project>
