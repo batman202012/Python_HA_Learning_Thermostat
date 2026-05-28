@@ -15,7 +15,7 @@
   <Config Name="FastAPI Web UI" Target="3000" Default="3000" Description="Web UI dashboard tracking page interface." Type="Port" Display="always" Required="true" Mask="false"/>
   <Config Name="FastAPI Host Bind IP" Target="IP" Default="0.0.0.0" Description="Host server interface target address." Type="Variable" Display="always" Required="true" Mask="false"/>
 
-  <Config Name="Appdata Storage Workspace" Target="/app" Default="/mnt/user/appdata/python_ha_learning_thermostat/" Description="Persistent workspace volume location for maintaining your runtime training tables." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Appdata Storage Workspace" Target="/app/data" Default="/mnt/user/appdata/python_ha_learning_thermostat/" Description="Persistent workspace volume location for maintaining your runtime training tables." Type="Path" Display="always" Required="true" Mask="false"/>
 
   <Config Name="Home Assistant Token" Target="HA_TOKEN" Default="your_long_lived_access_token_here" Description="Long-Lived Access Token string sequence generated out of your profile parameters." Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Home Assistant Network Address" Target="HA_ADD" Default="127.0.0.1:8123" Description="Local LAN endpoint address hosting your target instance." Type="Variable" Display="always" Required="true" Mask="false"/>
