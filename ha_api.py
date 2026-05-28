@@ -12,6 +12,17 @@ import config
 from state import APP_STATE
 import master_loop
 
+# Shared persistent client pool managed across the application lifecycle
+_client = httpx.AsyncClient(
+    timeout=httpx.Timeout(10.0, connect=5.0),
+    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+)
+
+
+async def close_session():
+    """Gracefully terminates the persistent HTTP connection pool on shutdown."""
+    await _client.aclose()
+
 async def trigger_cooling(target_temp: float):
     """Sends a REST API call to HA to change the thermostat temperature."""
     APP_STATE["expected_target_temp"] = target_temp
@@ -24,33 +35,46 @@ async def trigger_cooling(target_temp: float):
         "entity_id": config.THERMOSTAT_ENTITY_ID,
         "temperature": target_temp
     }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(config.HA_URL, headers=headers, json=payload)
-            return response.status_code
-        except Exception as e:
-            print(f"⚠️ HA API Error (trigger_cooling): {e}")
-            return None
+    try:
+        # Reuse the persistent client instance instead of creating a new pool
+        response = await _client.post(
+            config.HA_URL,
+            headers=headers,
+            json=payload
+        )
+        return response.status_code
+    except Exception as e:
+        print(f"⚠️ HA API Error (trigger_cooling): {e}")
+        return None
 
 async def get_sensor_state(entity_id: str):
-    """Gets the state of sensors from home assistant"""
-    headers = {"Authorization": f"Bearer {config.HA_TOKEN}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(f"{config.HA_URL_STATE}{entity_id}", headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                state_val = data.get('state')
-                # Check for non-numeric states common in HA
-                if state_val in [None, 'unavailable', 'unknown', 'none']:
-                    return None
-                try:
-                    return float(state_val)
-                except (ValueError, TypeError):
-                    return None
-            return None
-        except Exception:
-            return None
+    """Gets the numeric state of a specific sensor from Home Assistant."""
+    headers = {
+        "Authorization": f"Bearer {config.HA_TOKEN}", 
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = await _client.get(
+            f"{config.HA_URL_STATE}{entity_id}", 
+            headers=headers
+        )
+        if response.status_code == 200:
+            data = response.json()
+            state_val = data.get('state')
+
+            # Guard against common non-numeric availability states in HA
+            if state_val in [None, 'unavailable', 'unknown', 'none']:
+                return None
+            try:
+                return float(state_val)
+            except (ValueError, TypeError):
+                return None
+        return None
+    except Exception as e:
+        # Log network connection dropouts without crashing the loop
+        print(f"⚠️ Network error fetching sensor {entity_id}: {e}")
+        return None
 
 async def get_current_indoor_temp() -> float:
     """Fetches the actual indoor temperature from the thermostat attributes."""
@@ -166,3 +190,57 @@ async def listen_to_ha():
         except Exception as e:
             print(f"WebSocket Error: {e}")
             await asyncio.sleep(5)
+
+async def set_fan(turn_on: bool):
+    """Turns the fan on or off via Home Assistant REST API."""
+    if not config.ENABLE_AQ_FEATURE:
+        return
+    if not config.FAN_ENTITY_ID:
+        return
+
+    domain = config.FAN_ENTITY_ID.split(".")[0]
+    if turn_on:
+        service = "turn_on"
+    else:
+        service = "turn_off"
+
+    url = f"http://{config.HA_ADD}/api/services/{domain}/{service}"
+
+    headers = {
+        "Authorization": f"Bearer {config.HA_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {"entity_id": config.FAN_ENTITY_ID}
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+            if response.status_code != 200:
+                print(f"⚠️ Swamp cooler service call failed: {response.text}")
+        except Exception as e:
+            print(f"⚠️ Failed to toggle swamp cooler via API: {e}")
+
+
+async def get_all_air_quality_metrics() -> dict:
+    """Fetches VOC, NOx, and CO2 values concurrently from HA."""
+    if not config.ENABLE_AQ_FEATURE:
+        return {"voc": None, "nox": None, "co2": None}
+
+    if config.AQ_VOC_SENSOR:
+        voc_task = get_sensor_state(config.AQ_VOC_SENSOR)
+    else:
+        voc_task = asyncio.sleep(0, result=None)
+
+    if config.AQ_NOX_SENSOR:
+        nox_task = get_sensor_state(config.AQ_NOX_SENSOR)
+    else:
+        nox_task = asyncio.sleep(0, result=None)
+
+    if config.AQ_CO2_SENSOR:
+        co2_task = get_sensor_state(config.AQ_CO2_SENSOR)
+    else:
+        co2_task = asyncio.sleep(0, result=None)
+
+    voc, nox, co2 = await asyncio.gather(voc_task, nox_task, co2_task)
+
+    return {"voc": voc, "nox": nox, "co2": co2}

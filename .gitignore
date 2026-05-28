@@ -1,2 +1,4 @@
-.env
 *.db
+.env
+__pycache__/
+waiting_room.json

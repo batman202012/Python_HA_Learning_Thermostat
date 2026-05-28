@@ -37,6 +37,25 @@ OUTSIDE_HUMD_SENSOR = os.getenv("OUTSIDE_HUMD_SENSOR")
 MET_IO_FORCAST = os.getenv("MET_IO_FORCAST")
 
 # --- AI SAFETY RAILS ---
-# Using 68.0 and 78.0 as failsafe defaults if they are missing from .env
 SAFETY_MIN = float(os.getenv("SAFETY_MIN", "68.0"))
 SAFETY_MAX = float(os.getenv("SAFETY_MAX", "78.0"))
+
+# --- AIR QUALITY & VENTILATION CONFIG ---
+ENABLE_AQ_ENV = os.getenv("ENABLE_AQ_FEATURE", "False")
+ENABLE_AQ_FEATURE = ENABLE_AQ_ENV.lower() == "true"
+FAN_ENTITY_ID = os.getenv("FAN_ENTITY_ID")
+
+# VOC Configuration
+AQ_VOC_SENSOR = os.getenv("AQ_VOC_SENSOR")
+AQ_VOC_THRESHOLD = float(os.getenv("AQ_VOC_THRESHOLD", "150.0"))
+AQ_VOC_CLEAN_THRESHOLD = float(os.getenv("AQ_VOC_CLEAN_THRESHOLD", "100.0"))
+
+# NOx Configuration
+AQ_NOX_SENSOR = os.getenv("AQ_NOX_SENSOR")
+AQ_NOX_THRESHOLD = float(os.getenv("AQ_NOX_THRESHOLD", "120.0"))
+AQ_NOX_CLEAN_THRESHOLD = float(os.getenv("AQ_NOX_CLEAN_THRESHOLD", "70.0"))
+
+# CO2 Configuration
+AQ_CO2_SENSOR = os.getenv("AQ_CO2_SENSOR")
+AQ_CO2_THRESHOLD = float(os.getenv("AQ_CO2_THRESHOLD", "1100.0"))
+AQ_CO2_CLEAN_THRESHOLD = float(os.getenv("AQ_CO2_CLEAN_THRESHOLD", "800.0"))

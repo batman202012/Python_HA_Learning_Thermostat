@@ -60,37 +60,47 @@ async def handle_thermostat_change(state_data):
     elif abs(new_temp - float(expected)) > 0.5:
         print(f"🚨 MANUAL OVERRIDE DETECTED: House set to {new_temp}°F")
         state.APP_STATE["is_manual_override"] = True
-        now = datetime.now()
-        # If the change happens within 15 mins of a block start, we ignore the 'penalty'
-        # and just treat it as a new scheduled preference.
         state.APP_STATE["expected_target_temp"] = new_temp
-        is_grace_period = now.minute < 15
         current_ai_action = state.APP_STATE.get("locked_action")
-        if not is_grace_period:
-            state.APP_STATE["user_override_count"] += 1
-            # --- 1. THE Q-TABLE PENALTY ---
-            # Make sure we don't punish an empty state or a state that is already manual
-            if current_ai_action and current_ai_action not in ["Manual", "None"]:
-                print(f"💥 WRIST SLAP: Applying a -20.0 penalty to AI strategy '{current_ai_action}'.")
-
-                # Retrieve the environment state at the exact moment of failure
-                # (Adjust these variable fetches to match how your script tracks them)
-                time_block = state.APP_STATE.get("active_block", "Mid-Day")
-                if time_block == "Peak Hours":
-                    is_peak = 1
-                else:
-                    is_peak = 0
-                f_temp = state.APP_STATE.get("last_f_temp", 75.0)
-                f_humid = state.APP_STATE.get("last_f_humid", 20.0)
-
-                # Fetch the peak temp from memory to accurately penalize the exact state
-                peak_temp = state.APP_STATE.get("forecast_max_temp", None)
-                temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
-
-                # Deliver the instant Bellman update
-                database.update_q_score(time_block, temp_band, humid_band, is_peak, current_ai_action, -20.0)
+        state.APP_STATE["user_override_count"] += 1
+        # --- 1. THE Q-TABLE PENALTY ---
+        # Make sure we don't punish an empty state or a state that is already manual
+        if state.APP_STATE.get("block_had_aq_venting", False):
+            live_penalty = -2.0
+            print(
+                f"🍃 Forgiveness Active: Scaling down penalty on "
+                f"'{current_ai_action}' due to active AQ venting."
+            )
         else:
-            print("Adjustment: Logged without penalty.")
+            live_penalty = -20.0
+            print(
+                f"💥 WRIST SLAP: Applying a -20.0 penalty to AI "
+                f"strategy '{current_ai_action}'."
+            )
+
+        # Retrieve the environment state at the exact moment of failure
+        # (Adjust these variable fetches to match how your script tracks them)
+        time_block = state.APP_STATE.get("active_block", "Mid-Day")
+        if time_block == "Peak Hours":
+            is_peak = 1
+        else:
+            is_peak = 0
+        f_temp = state.APP_STATE.get("last_f_temp", 75.0)
+        f_humid = state.APP_STATE.get("last_f_humid", 20.0)
+
+        # Fetch the peak temp from memory to accurately penalize the exact state
+        peak_temp = state.APP_STATE.get("forecast_max_temp", None)
+        temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
+
+        # Deliver the instant Bellman update
+        database.update_q_score(
+                time_block,
+                temp_band,
+                humid_band,
+                is_peak,
+                current_ai_action,
+                live_penalty
+            )
 
         # 3. Sync to DB and Memory
         sync_ha_to_schedule(new_temp)
@@ -229,7 +239,14 @@ async def grade_current_block(block_name, is_peak: bool):
 
         # 3. Reward Calculation
         overrides = state.APP_STATE.get("user_override_count", 0)
-        base_reward = rl_agent.calculate_reward(overrides, kwh_used=actual_kwh_used, is_peak_pricing=is_peak)
+        had_venting = state.APP_STATE.get("block_had_aq_venting", False)
+
+        base_reward = rl_agent.calculate_reward(
+            overrides,
+            kwh_used=actual_kwh_used,
+            is_peak_pricing=is_peak,
+            block_had_aq_venting=had_venting
+        )
 
         # Final score for this 2-hour window
         reward = base_reward - time_penalty
@@ -259,6 +276,74 @@ async def master_clock():
 
         # --- THE 5-MINUTE TELEMETRY LOOP ---
         if now.minute % 5 == 0 and state.APP_STATE["last_evaluated_minute"] != now.minute:
+            # Inside master_loop.py -> master_clock() 5-minute interval loop:
+
+            if config.ENABLE_AQ_FEATURE:
+                aq_data = await ha_api.get_all_air_quality_metrics()
+                voc = aq_data["voc"]
+                nox = aq_data["nox"]
+                co2 = aq_data["co2"]
+
+                is_venting = state.APP_STATE.get("is_currently_venting", False)
+
+                voc_triggered = False
+                if voc is not None:
+                    if voc >= config.AQ_VOC_THRESHOLD:
+                        voc_triggered = True
+
+                nox_triggered = False
+                if nox is not None:
+                    if nox >= config.AQ_NOX_THRESHOLD:
+                        nox_triggered = True
+
+                co2_triggered = False
+                if co2 is not None:
+                    if co2 >= config.AQ_CO2_THRESHOLD:
+                        co2_triggered = True
+
+                voc_clean = False
+                if voc is None:
+                    voc_clean = True
+                elif voc <= config.AQ_VOC_CLEAN_THRESHOLD:
+                    voc_clean = True
+
+                nox_clean = False
+                if nox is None:
+                    nox_clean = True
+                elif nox <= config.AQ_NOX_CLEAN_THRESHOLD:
+                    nox_clean = True
+
+                co2_clean = False
+                if co2 is None:
+                    co2_clean = True
+                elif co2 <= config.AQ_CO2_CLEAN_THRESHOLD:
+                    co2_clean = True
+
+                any_triggered = voc_triggered or nox_triggered or co2_triggered
+                all_clean = voc_clean and nox_clean and co2_clean
+
+                if not is_venting:
+                    if any_triggered:
+                        reason = []
+                        if voc_triggered:
+                            reason.append(f"VOC Index: {voc}")
+                        if nox_triggered:
+                            reason.append(f"NOx Index: {nox}")
+                        if co2_triggered:
+                            reason.append(f"CO2 PPM: {co2}")
+
+                        msg = ", ".join(reason)
+                        print(f"⚠️ SENS55 AQ Alert! Spikes: [{msg}]. Venting.")
+                        await ha_api.set_fan(True)
+                        state.APP_STATE["is_currently_venting"] = True
+                        state.APP_STATE["block_had_aq_venting"] = True
+
+                elif is_venting:
+                    if all_clean:
+                        print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
+                        await ha_api.set_fan(False)
+                        state.APP_STATE["is_currently_venting"] = False
+
             state.APP_STATE["last_evaluated_minute"] = now.minute
             try:
                 # A. Fetch Sensors
@@ -372,17 +457,28 @@ async def master_clock():
                         state.APP_STATE["pending_grade"] = None
                         state.clear_waiting_room()
 
-                    if state.APP_STATE.get("is_manual_override"):
-                        print("🛑 Human intervened. AI gets no future credit. Wiping waiting room.")
+                    is_override = state.APP_STATE.get("is_manual_override")
+                    had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
+                    bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
+
+                    # Evaluate intervention parameters and protect waiting room during AQ events
+                    if is_override and not bypass_wipe:
+                        print("🛑 Human intervened. AI gets no future credit. Wiping room.")
                         state.APP_STATE["pending_grade"] = None
                         state.clear_waiting_room()
                         state.APP_STATE["is_manual_override"] = False
                     else:
+                        if is_override and bypass_wipe:
+                            print("🍃 AQ Venting active. Preserving waiting room credit.")
+
                         print(f"⏳ Placing '{finished_block}' into the JSON waiting room.")
                         pending_data = {
-                            "block": finished_block, "temp": finished_temp_band,
-                            "humid": finished_humid_band, "peak": is_peak,
-                            "action": finished_action, "immediate_reward": current_immediate_reward
+                            "block": finished_block,
+                            "temp": finished_temp_band,
+                            "humid": finished_humid_band,
+                            "peak": is_peak,
+                            "action": finished_action,
+                            "immediate_reward": current_immediate_reward
                         }
                         state.APP_STATE["pending_grade"] = pending_data
                         state.APP_STATE["is_manual_override"] = False
@@ -393,13 +489,23 @@ async def master_clock():
                     state.APP_STATE["active_block"] = current_block
                     state.APP_STATE["start_kwh"] = current_kwh
                     state.APP_STATE["user_override_count"] = 0
-                    state.APP_STATE["block_start_time"] = datetime.now()
                     state.APP_STATE["target_reached_time"] = None
+                    state.APP_STATE["is_manual_override"] = False
+                    state.APP_STATE["block_had_aq_venting"] = False
+                    state.APP_STATE["block_start_time"] = datetime.now()
 
                     database.save_session_state("active_block", current_block)
                     database.save_session_state("start_kwh", current_kwh)
                     database.save_session_state("block_start_time", state.APP_STATE["block_start_time"].isoformat())
                     database.save_session_state("target_reached_time", "")
+
+                    try:
+                        baseline = float(database.get_scheduled_temp(current_block))
+                    except Exception:
+                        baseline = 72.0
+
+                    # Reset the locked target back to the true baseline before the AI chooses an action
+                    state.APP_STATE["locked_target"] = baseline
 
                 # 4. Fetch REAL TARGET for Memory Recovery (Only needed on startup)
                 if is_startup:
@@ -536,37 +642,49 @@ async def master_clock():
                 target_temp = state.APP_STATE.get("locked_target", 72.0)
                 if target_temp is None:
                     target_temp = 75.0
-                if is_temp_valid and state.APP_STATE["target_reached_time"] is None:
-                    if indoor_temp <= target_temp:
-                        reached_now = datetime.now()
-                        state.APP_STATE["target_reached_time"] = reached_now
-                        # Persist it!
-                        database.save_session_state("target_reached_time", reached_now.isoformat())
-                        print(f"⏱️ Target reached at {reached_now.strftime('%H:%M:%S')}")
 
                 # D. EXECUTE & LOG
+                live_action = state.APP_STATE.get("locked_action", "Normal")
+                live_target = state.APP_STATE.get("locked_target", 72.0)
                 running_kwh = float(current_kwh) - float(state.APP_STATE.get("start_kwh", 0.0))
-                state.APP_STATE["expected_target_temp"] = float(target_temp)
-                asyncio.create_task(ha_api.trigger_cooling(target_temp))
+                state.APP_STATE["expected_target_temp"] = float(live_target)
+                asyncio.create_task(ha_api.trigger_cooling(live_target))
+
+                # Check if the indoor temperature satisfies the cooling target'
+                if is_temp_valid:
+                    if indoor_temp <= live_target:
+                        if state.APP_STATE.get("target_reached_time") is None:
+                            reached_now = datetime.now()
+                            state.APP_STATE["target_reached_time"] = datetime.now()
+                            database.save_session_state("target_reached_time", reached_now.isoformat())
+                            print(f"⏱️ Target reached at {datetime.now().strftime('%H:%M:%S')}")
+                    else:
+                        # Temperature exceeded target; clear tracking to capture recovery duration
+                        if state.APP_STATE.get("target_reached_time") is not None:
+                            state.APP_STATE["target_reached_time"] = None
+                            database.save_session_state("target_reached_time", "")
+                            print("⚠️ Temperature exceeded target. Resetting tracking clock.")
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 is_peak = current_block == "Peak Hours"
+                had_venting = state.APP_STATE.get("block_had_aq_venting", False)
 
                 snapshot_reward = rl_agent.calculate_reward(
                     current_overrides,
                     kwh_used=max(0, running_kwh),
-                    is_peak_pricing=is_peak
+                    is_peak_pricing=is_peak,
+                    block_had_aq_venting=had_venting
                 )
 
                 is_ambient_cooling = False
-                if f_temp > 40.0 and f_temp < (target_temp - 4):
+                if f_temp > 40.0 and f_temp < (live_target - 4):
                     is_ambient_cooling = True
-                    print(f"🌬️ Ambient Cooling Active: Outdoor {f_temp}°F is 4°+ below Target {target_temp}°F.")
+                    print(f"🌬️ Ambient Cooling Active: Outdoor {f_temp}°F is 4°+ below Target {live_target}°F.")
 
                 # Update the action name for the log so you can see it in the dashboard
-                display_action = chosen_action
+                display_action = live_action
                 if is_ambient_cooling:
-                    display_action = f"{chosen_action} (Fan Only)"
+                    display_action = f"{live_action} (Fan Only)"
 
                 state.APP_STATE["last_f_temp"] = f_temp
                 state.APP_STATE["last_f_humid"] = f_humid
@@ -574,7 +692,7 @@ async def master_clock():
                     current_block, indoor_temp, target_temp, f_humid,
                     display_action, max(0, running_kwh), state.APP_STATE.get("user_override_count", 0), snapshot_reward
                 )
-                print(f"✅ 5-minute log successful. ({chosen_action} @ {target_temp}°F"
+                print(f"✅ 5-minute log successful. ({live_action} @ {live_target}°F"
                       f" | Live Reward: {snapshot_reward:.2f})")
 
             except Exception as e:

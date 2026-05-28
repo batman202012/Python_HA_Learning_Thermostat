@@ -7,13 +7,23 @@ import random
 import sqlite3
 import config
 
-def calculate_reward(user_overrides: int, kwh_used: float, is_peak_pricing: bool):
-    """Calculates the success score of a completed cycle."""
+def calculate_reward(
+    user_overrides: int,
+    kwh_used: float,
+    is_peak_pricing: bool,
+    block_had_aq_venting: bool = False
+):
+    """Calculates the success score with AQ forgiveness logic."""
     reward = 0
+
     if user_overrides == 0:
         reward += 10
     else:
-        reward -= (20 * user_overrides)
+        if config.ENABLE_AQ_FEATURE and block_had_aq_venting:
+            reward -= (2 * user_overrides)
+            print("🍃 Reward Note: Override penalty minimized due to venting.")
+        else:
+            reward -= (20 * user_overrides)
 
     cost_multiplier = 4.0 if is_peak_pricing else 2.5
     cost_penalty = kwh_used * cost_multiplier
@@ -94,22 +104,37 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
     conn.close()
 
     q_scores = {row[0]: row[1] for row in results}
+
+    # Map database records to action scores and track historical experience
+    untried = [a for a in available_actions if a not in q_scores]
+    total_visits = sum(row[2] or 0 for row in results)
+
     # Ensure all available actions are in the dictionary before we pick the max!
     for action in available_actions:
         if action not in q_scores:
             q_scores[action] = 0.0
+
     print(f"🔍 DEBUG X-RAY: Found in DB -> {q_scores}")
 
-    # 3. Epsilon-Greedy Logic (15% chance to experiment)
-    epsilon = 0.20
+    # Calculate a decaying exploration rate based on total state visits
+    base_epsilon = 0.20
+    decay_rate = 0.05
+    min_epsilon = 0.05
+    # Apply inverse-growth decay to reduce exploration as experience grows
+    epsilon = max(
+        min_epsilon,
+        base_epsilon / (1.0 + (total_visits * decay_rate))
+    )
+
     is_exploring = random.random() < epsilon
 
     if not q_scores or is_exploring:
-        untried = [a for a in available_actions if a not in q_scores]
         chosen_action = random.choice(untried) if untried else random.choice(available_actions)
         print(f"🧠 AI is EXPLORING: Trying '{chosen_action}'")
     else:
-        chosen_action = max(q_scores, key=q_scores.get)
+        max_val = max(q_scores.values())
+        best_actions = [k for k, v in q_scores.items() if v == max_val]
+        chosen_action = random.choice(best_actions)
         print(f"🧠 AI is EXPLOITING: Using proven strategy '{chosen_action}'")
 
     # 4. Translate strategy to math
