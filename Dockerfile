@@ -6,21 +6,21 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 # Establish our working directory inside the container
-WORKDIR /app
+WORKDIR /app/
 
 # Install system dependencies if required
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements first to exploit Docker layer caching
-COPY requirements.txt .
+# Copy dependencies first
+COPY requirements.txt /app/
 
 # Install dependencies cleanly without caching installation packages
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application files into the image
-COPY . .
+COPY . /app/
 
 # Pre-compile the entire workspace tree into optimized bytecode files
 RUN python -m compileall .
