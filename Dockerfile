@@ -1,14 +1,14 @@
 # Use a slim Python runtime for small image sizes
 FROM python:3.11-slim
 
-# Prevent Python from writing .pyc files and enable unbuffered logging
-ENV PYTHONDONTWRITEBYTECODE=1
+# Enable unbuffered logging and establish explicit root module search paths
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 # Establish our working directory inside the container
 WORKDIR /app
 
-# Install system dependencies if required (sqlite3 is built into Python)
+# Install system dependencies if required
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
@@ -22,11 +22,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application files into the image
 COPY . .
 
-# Force Python to compile the entry script and verify all underlying imports
-RUN python -m py_compile main.py
+# Pre-compile the entire workspace tree into optimized bytecode files
+RUN python -m compileall .
 
 # Expose the FastAPI web dashboard port
 EXPOSE 3000
 
-# Start the application pointing to main:app
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
+# Start the application pointing to main:app with anchored path pointers
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--app-dir", "/app"]
