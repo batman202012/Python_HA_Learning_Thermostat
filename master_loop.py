@@ -643,6 +643,13 @@ async def master_clock():
                 if target_temp is None:
                     target_temp = 75.0
 
+                # D. EXECUTE & LOG
+                live_action = state.APP_STATE.get("locked_action", "Normal")
+                live_target = state.APP_STATE.get("locked_target", 72.0)
+                running_kwh = float(current_kwh) - float(state.APP_STATE.get("start_kwh", 0.0))
+                state.APP_STATE["expected_target_temp"] = float(live_target)
+                asyncio.create_task(ha_api.trigger_cooling(live_target))
+
                 # Check if the indoor temperature satisfies the cooling target
                 if indoor_temp <= live_target:
                     if state.APP_STATE.get("target_reached_time") is None:
@@ -656,13 +663,6 @@ async def master_clock():
                         state.APP_STATE["target_reached_time"] = None
                         database.save_session_state("target_reached_time", "")
                         print("⚠️ Temperature exceeded target. Resetting tracking clock.")
-
-                # D. EXECUTE & LOG
-                live_action = state.APP_STATE.get("locked_action", "Normal")
-                live_target = state.APP_STATE.get("locked_target", 72.0)
-                running_kwh = float(current_kwh) - float(state.APP_STATE.get("start_kwh", 0.0))
-                state.APP_STATE["expected_target_temp"] = float(live_target)
-                asyncio.create_task(ha_api.trigger_cooling(live_target))
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 is_peak = current_block == "Peak Hours"
