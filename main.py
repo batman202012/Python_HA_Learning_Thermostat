@@ -3,17 +3,16 @@ Learning Thermostat Backend
 Handles scheduling, Home Assistant integration, and Reinforcement Learning.
 """
 
+import sys
 import sqlite3
 import asyncio
+import subprocess
+from collections import deque
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-import uvicorn
 from dotenv import load_dotenv
-import sys
-from collections import deque
-import subprocess
 
 # Imports from local .py files
 import config
@@ -22,6 +21,7 @@ import ha_api
 import master_loop
 
 terminal_buffer = deque(maxlen=100)
+
 
 class ConsoleInterceptor:
     """Intercepts the systemctl logs to print to index.html"""
@@ -41,7 +41,7 @@ class ConsoleInterceptor:
         if not clean_text or "HTTP/1.1" in clean_text or "GET /api" in clean_text:
             return
 
-        # 3. We strip off the variable "Live Reward" part to see if the core event is the same
+        # 3. We strip off the variable "Live Reward" part to see if core matches
         core_message = clean_text
         if "Live Reward:" in clean_text:
             core_message = clean_text.split("| Live Reward:")[0].strip()
@@ -51,10 +51,10 @@ class ConsoleInterceptor:
             self.repeat_count += 1
             if terminal_buffer:
                 terminal_buffer.pop()
-            # We keep the NEWEST version (with the updated reward) but add the multiplier
+            # Keep NEWEST version (with updated reward) but add multiplier
             terminal_buffer.append(f"{self.repeat_count}x {clean_text}")
         else:
-            # This is a genuinely new event (e.g., block transition or manual override)
+            # Genuine new event (e.g., block transition or manual override)
             self.last_message = core_message
             self.repeat_count = 1
             terminal_buffer.append(clean_text)
@@ -65,20 +65,21 @@ class ConsoleInterceptor:
 
     def __getattr__(self, name):
         """Passes any unknown requests to the terminal"""
-        # Pass any unknown requests (like .isatty()) to the original terminal
         return getattr(self.original_stdout, name)
 
-# Hijack the standard output
-sys.stdout = ConsoleInterceptor(sys.stdout)
 
 # Load the hidden variables from the .env file
 load_dotenv()
 print(f"📂 Database localized to: {config.DB_PATH}")
 
+
 # --- FASTAPI SETUP ---
 @asynccontextmanager
-async def lifespan(_fastapi_app: FastAPI): # Renamed to avoid shadowing outer 'app'
+async def lifespan(_fastapi_app: FastAPI):
     """Manages background tasks during the application lifecycle."""
+    # SAFE HOOK ZONE: Hijack stdout after Uvicorn has completed its imports
+    sys.stdout = ConsoleInterceptor(sys.stdout)
+
     database.initialize_brain()
     print("🚀 Booting up Thermostat Brain...")
     ha_listener_task = asyncio.create_task(ha_api.listen_to_ha())
@@ -90,8 +91,10 @@ async def lifespan(_fastapi_app: FastAPI): # Renamed to avoid shadowing outer 'a
     ha_listener_task.cancel()
     clock_task.cancel()
 
+
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
+
 
 # --- WEB ROUTES ---
 @app.get("/", response_class=HTMLResponse)
@@ -102,6 +105,7 @@ async def dashboard(request: Request):
         name="index.html",
         context={"schedule": []}
     )
+
 
 @app.post("/api/schedule")
 async def update_schedule(time_block: str, target_temp: float):
@@ -121,47 +125,46 @@ async def update_schedule(time_block: str, target_temp: float):
     print(f"💾 Schedule saved: {time_block} set to {target_temp}°F")
     return {"status": "success"}
 
+
 @app.get("/api/q_table")
 async def get_q_table():
     """Fetches the current learned scores."""
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT time_block, temp_band, humidity_band," \
-    " is_peak_pricing, action_taken, q_score" \
-    " FROM q_table ORDER BY q_score DESC")
+    cursor.execute("SELECT time_block, temp_band, humidity_band,"
+                   " is_peak_pricing, action_taken, q_score"
+                   " FROM q_table ORDER BY q_score DESC")
     columns = [column[0] for column in cursor.description]
     results = [dict(zip(columns, row)) for row in cursor.fetchall()]
     conn.close()
     return {"data": results}
+
 
 @app.get("/api/history")
 async def get_history():
     """Fetches the recent execution history."""
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT date_time, time_block, actual_temp," \
-    " target_temp, actual_humidity, action_taken, user_overrides," \
-    " reward_granted FROM history_log ORDER BY id DESC LIMIT 700")
+    cursor.execute("SELECT date_time, time_block, actual_temp,"
+                   " target_temp, actual_humidity, action_taken, user_overrides,"
+                   " reward_granted FROM history_log ORDER BY id DESC LIMIT 700")
     columns = [column[0] for column in cursor.description]
     results = [dict(zip(columns, row)) for row in cursor.fetchall()]
     conn.close()
     return {"data": results}
 
+
 @app.get("/api/logs")
 def get_terminal_logs():
     """Returns the cleanly formatted terminal output from memory."""
-    # Join the last 100 logs with line breaks
     return {"logs": "\n".join(terminal_buffer)}
+
 
 @app.post("/api/restart")
 async def restart_service():
     """Triggers a systemd restart in the background."""
     print("🔄 Restart command received from UI. Rebooting system...")
-    # The 'sleep 1' gives the web response time to reach your browser
-    # before the process is killed.
+    # Sleep 1 gives the web response time to reach your browser before kill
     cmd = "sleep 1 && sudo /usr/bin/systemctl restart thermostat.service"
     subprocess.Popen(cmd, shell=True)
     return {"message": "Restarting system... Dashboard will reconnect shortly."}
-
-if __name__ == "__main__":
-    uvicorn.run(app, host=config.IP, port=config.PORT, access_log=False)
