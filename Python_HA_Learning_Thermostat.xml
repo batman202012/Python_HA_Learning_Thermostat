@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Container version="2">
   <Name>Python_HA_Learning_Thermostat</Name>
-  <Repository>nado24/python_ha_learning_thermostat:beta</Repository>
+  <Repository>nado24/python_ha_learning_thermostat:latest</Repository>
   <Registry>https://hub.docker.com/</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <Support>https://github.com/batman202012/Python_HA_Learning_Thermostat/issues</Support>
   <Project>https://github.com/batman202012/Python_HA_Learning_Thermostat</Project>
   <Overview>Reinforcement learning thermostat engine integrated with Home Assistant core connection points, safety rails, and SENS55 environmental air quality control modules.</Overview>
-  <Category>HomeAutomation: Status:Beta</Category>
+  <Category>HomeAutomation: Status:Latest</Category>
   <WebUI>http://[IP]:[PORT:3000]</WebUI>
   <Icon>https://raw.githubusercontent.com/home-assistant/brands/master/core_images/home-assistant.png</Icon>
 
