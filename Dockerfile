@@ -28,5 +28,5 @@ RUN python -m compileall .
 # Expose the FastAPI web dashboard port
 EXPOSE 3000
 
-# Start the application pointing to main:app with anchored path pointers
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000", "--app-dir", "/app"]
+# Start the application using module-string notation from the root directory context
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
