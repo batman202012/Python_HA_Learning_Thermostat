@@ -1,144 +1,14 @@
 <?xml version="1.0"?>
 <Container version="2">
-<<<<<<< Updated upstream
   <Name>HA-Learning-Thermostat</Name>
   <Repository>nado24/python-ha-learning-thermostat:latest</Repository>
   <Registry>https://hub.docker.com/r/nado24/python-ha-learning-thermostat/</Registry>
-=======
-  <Name>Python_HA_Learning_Thermostat</Name>
-  <Repository>nado42/python-ha-learning-thermostat:beta</Repository>
-  <Registry>https://hub.docker.com/</Registry>
->>>>>>> Stashed changes
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
   <Support>https://github.com/batman202012/Python_HA_Learning_Thermostat/issues</Support>
   <Project>https://github.com/batman202012/Python_HA_Learning_Thermostat</Project>
-<<<<<<< Updated upstream
-  <Overview>An intelligent, tabular reinforcement learning thermostat that integrates natively with Home Assistant. It optimizes heating/cooling schedules based on external ambient conditions, pricing constraints, and air quality metrics while forgiving manual human intervention.</Overview>
-  <Category>HomeAutomation: Status:Stable</Category>
-  <WebUI>http://[IP]:[PORT:3000]/</WebUI>
-  <TemplateURL/>
-  <Icon>https://raw.githubusercontent.com/batman202012/Python_HA_Learning_Thermostat/refs/heads/beta/templates/favicon.ico</Icon>
-  <ExtraParams/>
-  <PostArgs/>
-  <CPUset/>
-  <DateInstalled/>
-  <DonateText/>
-  <DonateLink/>
-  <Description>An intelligent, tabular reinforcement learning thermostat that integrates natively with Home Assistant. It optimizes heating/cooling schedules based on external ambient conditions, pricing constraints, and air quality metrics while forgiving manual human intervention.</Description>
-  <Networking>
-    <Mode>bridge</Mode>
-    <Publish>
-      <Port>
-        <HostPort>3000</HostPort>
-        <ContainerPort>3000</ContainerPort>
-        <Protocol>tcp</Protocol>
-        <ListenAddr>0.0.0.0</ListenAddr>
-      </Port>
-    </Publish>
-  </Networking>
-  <Data>
-    <Volume>
-      <HostDir>/mnt/user/appdata/ha_learning_thermostat</HostDir>
-      <ContainerDir>/app</ContainerDir>
-      <Mode>rw</Mode>
-    </Volume>
-  </Data>
-  <Environment>
-    <Variable>
-      <Value>127.0.0.1:8123</Value>
-      <Name>HA_ADD</Name>
-      <Reference>HA_ADD</Reference>
-      <Description>The IP/Port address of your Home Assistant instance (e.g., 192.168.1.50:8123).</Description>
-    </Variable>
-    <Variable>
-      <Value/>
-      <Name>HA_TOKEN</Name>
-      <Reference>HA_TOKEN</Reference>
-      <Description>Your Long-Lived Access Token generated from your Home Assistant profile page.</Description>
-    </Variable>
-    <Variable>
-      <Value>climate.your_thermostat_name</Value>
-      <Name>THERMOSTAT_ENTITY_ID</Name>
-      <Reference>THERMOSTAT_ENTITY_ID</Reference>
-      <Description>The Home Assistant climate domain entity tracking target controls.</Description>
-    </Variable>
-    <Variable>
-      <Value>0.0.0.0</Value>
-      <Name>IP</Name>
-      <Reference>IP</Reference>
-      <Description>The host bind address for the internal backend server.</Description>
-    </Variable>
-    <Variable>
-      <Value>3000</Value>
-      <Name>PORT</Name>
-      <Reference>PORT</Reference>
-      <Description>Internal binding port for the interactive UI matrix.</Description>
-    </Variable>
-    <Variable>
-      <Value>sensor.electricity_price</Value>
-      <Name>COOLING_ENERGY_USAGE_SENSOR</Name>
-      <Reference>COOLING_ENERGY_USAGE_SENSOR</Reference>
-      <Description>Energy consumption entity identifier tracking kilowatt metrics.</Description>
-    </Variable>
-    <Variable>
-      <Value/>
-      <Name>OUTSIDE_TEMP_SENSOR</Name>
-      <Reference>OUTSIDE_TEMP_SENSOR</Reference>
-      <Description>External outdoor temperature tracking entity identifier.</Description>
-    </Variable>
-    <Variable>
-      <Value/>
-      <Name>OUTSIDE_HUMD_SENSOR</Name>
-      <Reference>OUTSIDE_HUMD_SENSOR</Reference>
-      <Description>External outdoor humidity tracking entity identifier.</Description>
-    </Variable>
-    <Variable>
-      <Value>68.0</Value>
-      <Name>SAFETY_MIN</Name>
-      <Reference>SAFETY_MIN</Reference>
-      <Description>Minimum safety clamp floor allowed by reinforcement agent operations.</Description>
-    </Variable>
-    <Variable>
-      <Value>78.0</Value>
-      <Name>SAFETY_MAX</Name>
-      <Reference>SAFETY_MAX</Reference>
-      <Description>Maximum safety clamp ceiling allowed by reinforcement agent operations.</Description>
-    </Variable>
-    <Variable>
-      <Value>False</Value>
-      <Name>ENABLE_AQ_FEATURE</Name>
-      <Reference>ENABLE_AQ_FEATURE</Reference>
-      <Description>Toggle environment flag parameter enabling ventilation routines (True/False).</Description>
-    </Variable>
-    <Variable>
-      <Value/>
-      <Name>SWAMP_COOLER_ENTITY_ID</Name>
-      <Reference>SWAMP_COOLER_ENTITY_ID</Reference>
-      <Description>Home assistant switch selector managing physical air hardware devices.</Description>
-    </Variable>
-    <Variable>
-      <Value/>
-      <Name>AQ_VOC_SENSOR</Name>
-      <Reference>AQ_VOC_SENSOR</Reference>
-      <Description>Volatile organic compound input hardware metrics index tracking.</Description>
-    </Variable>
-    <Variable>
-      <Value>150.0</Value>
-      <Name>AQ_VOC_THRESHOLD</Name>
-      <Reference>AQ_VOC_THRESHOLD</Reference>
-      <Description>Air quality trigger points enforcing environmental safety actions.</Description>
-    </Variable>
-    <Variable>
-      <Value>100.0</Value>
-      <Name>AQ_VOC_CLEAN_THRESHOLD</Name>
-      <Reference>AQ_VOC_CLEAN_THRESHOLD</Reference>
-      <Description>Air quality recovery clearance parameters shutting down manual vent routines.</Description>
-    </Variable>
-  </Environment>
-=======
   <Overview>Reinforcement learning thermostat engine integrated with Home Assistant core connection points, safety rails, and SENS55 environmental air quality control modules.</Overview>
   <Category>HomeAutomation: Status:Beta</Category>
   <WebUI>http://[IP]:[PORT:3000]</WebUI>
@@ -175,5 +45,4 @@
   <Config Name="CO2 Metric Collection Path" Target="AQ_CO2_SENSOR" Default="sensor.sens55_co2_ppm" Description="Index identifier tracking total background gas density metrics." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="CO2 Volatile Limit Threshold" Target="AQ_CO2_THRESHOLD" Default="1100.0" Description="Limit constraint mapping triggering penalty minimization loops." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="CO2 Normalized Clearance Point" Target="AQ_CO2_CLEAN_THRESHOLD" Default="800.0" Description="Clearance metrics determining localized target resets." Type="Variable" Display="advanced" Required="false" Mask="false"/>
->>>>>>> Stashed changes
 </Container>
