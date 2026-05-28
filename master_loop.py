@@ -642,13 +642,20 @@ async def master_clock():
                 target_temp = state.APP_STATE.get("locked_target", 72.0)
                 if target_temp is None:
                     target_temp = 75.0
-                if is_temp_valid and state.APP_STATE["target_reached_time"] is None:
-                    if indoor_temp <= target_temp:
+
+                # Check if the indoor temperature satisfies the cooling target
+                if indoor_temp <= live_target:
+                    if state.APP_STATE.get("target_reached_time") is None:
                         reached_now = datetime.now()
-                        state.APP_STATE["target_reached_time"] = reached_now
-                        # Persist it!
+                        state.APP_STATE["target_reached_time"] = datetime.now()
                         database.save_session_state("target_reached_time", reached_now.isoformat())
-                        print(f"⏱️ Target reached at {reached_now.strftime('%H:%M:%S')}")
+                        print(f"⏱️ Target reached at {datetime.now().strftime('%H:%M:%S')}")
+                else:
+                    # Temperature exceeded target; clear tracking to capture recovery duration
+                    if state.APP_STATE.get("target_reached_time") is not None:
+                        state.APP_STATE["target_reached_time"] = None
+                        database.save_session_state("target_reached_time", "")
+                        print("⚠️ Temperature exceeded target. Resetting tracking clock.")
 
                 # D. EXECUTE & LOG
                 live_action = state.APP_STATE.get("locked_action", "Normal")
