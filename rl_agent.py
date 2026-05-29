@@ -30,34 +30,39 @@ def calculate_reward(
     reward -= cost_penalty
     return reward
 
+
 def get_state_bands(temp, humidity, peak_temp=None):
-    """Converts the outside temp and humidity into bands for use in the reward function"""
-    # Temp Bands: <75, 80, 85, 90, 95, 100, 105, 110
+    """Converts the outside temp and humidity into standardized strings."""
+    # Temperature Bounds
     t_list = [75, 80, 85, 90, 95, 100, 105, 110]
     t_band = "110+"
+
     if temp < 75:
         t_band = "<75"
     else:
         for val in t_list:
             if temp < val:
-                t_band = f"{val-5}-{val}"
+                t_band = f"<{val}"
                 break
 
-    # Humidity Bands: <5, 10, 15, 20, 25, 30, 45, 60
+    # Humidity Bounds
     h_list = [5, 10, 15, 20, 25, 30, 45, 60]
     h_band = "60%+"
+
     if humidity < 5:
         h_band = "<5%"
     else:
-        # Special handling for the 30-45 and 45-60 jumps
         for val in h_list:
             if humidity < val:
                 if val == 45:
                     h_band = "30-45%"
                 elif val == 60:
                     h_band = "45-60%"
-                else: h_band = f"{val-5}-{val}%"
+                else:
+                    h_band = f"<{val}%"
                 break
+
+    # Weather Threat Assessment
     if peak_temp is not None:
         if peak_temp >= 105:
             forecast_band = "Threat: 105+"
@@ -70,9 +75,7 @@ def get_state_bands(temp, humidity, peak_temp=None):
     else:
         forecast_band = "Threat: None"
 
-    # --- THE POMDP FIX ---
-    # Attach the forecast directly to the temp band so the SQLite DB treats it
-    # as a unique memory state without needing an ALTER TABLE command.
+    # Combine data structures safely for POMDP state compatibility
     combined_temp_state = f"{t_band} [{forecast_band}]"
 
     return combined_temp_state, h_band
