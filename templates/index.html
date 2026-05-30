@@ -614,62 +614,75 @@
     </script>
 
     <div id="fallback-defaults" 
-        data-temp="{{ default_temp }}" 
-        data-humid="{{ default_humid }}" 
-        style="display: none;">
-    </div>
+     data-temp="{{ default_temp }}" 
+     data-humid="{{ default_humid }}" 
+     style="display: none !important; position: absolute; visibility: hidden;">
+</div>
 
-    <script>
-    document.addEventListener("DOMContentLoaded", function() {
-        // Target your exact element IDs (Verify these match your actual HTML element IDs)
-        const tempSelect = document.getElementById("temp_band") || document.querySelector("select[name='temp_band']");
-        const humidSelect = document.getElementById("humidity_band") || document.querySelector("select[name='humidity_band']");
-        const mainTable = document.querySelector("table"); 
+<style>
+    /* Explicit high-priority text override rule for unexperienced states */
+    .grayed-out-matrix table,
+    .grayed-out-matrix table th,
+    .grayed-out-matrix table td,
+    .grayed-out-matrix table strong {
+        color: #9ca3af !important;
+        text-shadow: none !important;
+    }
+</style>
 
-        // Retrieve embedded baseline configurations
-        const defaultsBridge = document.getElementById("fallback-defaults");
-        const defaultTempBand = defaultsBridge ? defaultsBridge.getAttribute("data-temp") : "<75";
-        const defaultHumidBand = defaultsBridge ? defaultsBridge.getAttribute("data-humid") : "20-25%";
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    // Intercept dropdown updates to sync cache preferences and layout colors
+    function evaluateTableColoration() {
+        const tempSelect = document.getElementById('temp-filter');
+        const humidSelect = document.getElementById('humid-filter');
+        const matrixContainer = document.getElementById('q-matrix-container');
+        
+        if (!tempSelect || !humidSelect || !matrixContainer) return;
 
-        // 1. FIX: Restore from cache or default to the state from 2 blocks ago
-        if (localStorage.getItem("thermostat_temp_selection")) {
-            tempSelect.value = localStorage.getItem("thermostat_temp_selection");
+        // Verify if either target empty filter state selection is active
+        const hasNoInfoSelected = (tempSelect.value === "100-105 [Threat:100-104]" || humidSelect.value === "10-15%");
+
+        if (hasNoInfoSelected) {
+            matrixContainer.classList.add("grayed-out-matrix");
         } else {
-            tempSelect.value = defaultTempBand;
+            matrixContainer.classList.remove("grayed-out-matrix");
         }
+    }
 
-        if (localStorage.getItem("thermostat_humid_selection")) {
-            humidSelect.value = localStorage.getItem("thermostat_humid_selection");
-        } else {
-            humidSelect.value = defaultHumidBand;
-        }
-
-        // 2. Dynamic text-color shifter for empty/extreme bands
-        function evaluateTableColoration() {
-            if (!mainTable) return;
+    // Extend dropdown populator to enforce state preservation after DOM clear cycles
+    if (typeof populateDropdowns === 'function') {
+        const originalPopulateDropdowns = populateDropdowns;
+        populateDropdowns = function() {
+            originalPopulateDropdowns(); // Execute core layout rendering first
             
-            const hasNoInfoSelected = (tempSelect.value === "100-105 [Threat:100-104]" || humidSelect.value === "10-15%");
+            const tempSelect = document.getElementById('temp-filter');
+            const humidSelect = document.getElementById('humid-filter');
+            const defaultsBridge = document.getElementById("fallback-defaults");
 
-            if (hasNoInfoSelected) {
-                // Apply inline gray text color shift
-                mainTable.style.color = "#9ca3af"; 
-                
-                // Override explicit text-white style tags inside headers/cells if present
-                mainTable.querySelectorAll(".text-white, th, td").forEach(el => {
-                    el.classList.remove("text-white");
-                    el.style.color = "#9ca3af"; // Tailwind gray-400 hex profile
-                });
-            } else {
-                // Revert to baseline configuration
-                mainTable.style.color = "";
-                mainTable.querySelectorAll("th, td").forEach(el => {
-                    el.style.color = "";
-                    el.classList.add("text-white");
-                });
+            if (tempSelect && humidSelect) {
+                // Read from client storage or drop back to last committed database blocks
+                if (localStorage.getItem("thermostat_temp_selection")) {
+                    tempSelect.value = localStorage.getItem("thermostat_temp_selection");
+                } else if (defaultsBridge) {
+                    tempSelect.value = defaultsBridge.getAttribute("data-temp") || "<75";
+                }
+
+                if (localStorage.getItem("thermostat_humid_selection")) {
+                    humidSelect.value = localStorage.getItem("thermostat_humid_selection");
+                } else if (defaultsBridge) {
+                    humidSelect.value = defaultsBridge.getAttribute("data-humid") || "20-25%";
+                }
             }
-        }
+            evaluateTableColoration();
+        };
+    }
 
-        // 3. Set up event state listeners
+    // Attach event listeners to watch user modifications to filters
+    const tempSelect = document.getElementById('temp-filter');
+    const humidSelect = document.getElementById('humid-filter');
+
+    if (tempSelect && humidSelect) {
         tempSelect.addEventListener("change", function() {
             localStorage.setItem("thermostat_temp_selection", this.value);
             evaluateTableColoration();
@@ -679,10 +692,8 @@
             localStorage.setItem("thermostat_humid_selection", this.value);
             evaluateTableColoration();
         });
-
-        // Run evaluations immediately upon drawing the initial elements
-        evaluateTableColoration();
-    });
-    </script>
+    }
+});
+</script>
 </body>
 </html>
