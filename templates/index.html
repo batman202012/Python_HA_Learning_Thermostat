@@ -614,86 +614,110 @@
     </script>
 
     <div id="fallback-defaults" 
-     data-temp="{{ default_temp }}" 
-     data-humid="{{ default_humid }}" 
-     style="display: none !important; position: absolute; visibility: hidden;">
-</div>
+        data-temp="{{ default_temp }}" 
+        data-humid="{{ default_humid }}" 
+        style="display: none !important;">
+    </div>
 
-<style>
-    /* Explicit high-priority text override rule for unexperienced states */
-    .grayed-out-matrix table,
-    .grayed-out-matrix table th,
-    .grayed-out-matrix table td,
-    .grayed-out-matrix table strong {
-        color: #9ca3af !important;
-        text-shadow: none !important;
-    }
-</style>
-
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-    // Intercept dropdown updates to sync cache preferences and layout colors
-    function evaluateTableColoration() {
-        const tempSelect = document.getElementById('temp-filter');
-        const humidSelect = document.getElementById('humid-filter');
-        const matrixContainer = document.getElementById('q-matrix-container');
-        
-        if (!tempSelect || !humidSelect || !matrixContainer) return;
-
-        // Verify if either target empty filter state selection is active
-        const hasNoInfoSelected = (tempSelect.value === "100-105 [Threat:100-104]" || humidSelect.value === "10-15%");
-
-        if (hasNoInfoSelected) {
-            matrixContainer.classList.add("grayed-out-matrix");
-        } else {
-            matrixContainer.classList.remove("grayed-out-matrix");
+    <style>
+        /* High-priority override to gray out matrix letters and remove shadows */
+        .matrix-grayed-out th,
+        .matrix-grayed-out td,
+        .matrix-grayed-out td strong {
+            color: #9ca3af !important;
+            text-shadow: none !important;
         }
-    }
+    </style>
 
-    // Extend dropdown populator to enforce state preservation after DOM clear cycles
-    if (typeof populateDropdowns === 'function') {
-        const originalPopulateDropdowns = populateDropdowns;
-        populateDropdowns = function() {
-            originalPopulateDropdowns(); // Execute core layout rendering first
-            
+    <script>
+    (function() {
+        const defaultsEl = document.getElementById('fallback-defaults');
+        const defaultTemp = defaultsEl ? defaultsEl.getAttribute('data-temp') : "<75";
+        const defaultHumid = defaultsEl ? defaultsEl.getAttribute('data-humid') : "20-25%";
+
+        // Set up local fallback baselines if storage profiles are empty
+        if (!localStorage.getItem("thermostat_temp_selection")) {
+            localStorage.setItem("thermostat_temp_selection", defaultTemp);
+        }
+        if (!localStorage.getItem("thermostat_humid_selection")) {
+            localStorage.setItem("thermostat_humid_selection", defaultHumid);
+        }
+
+        // Intercept dropdown injector to insert extreme values and force persistence
+        if (typeof populateDropdowns === 'function') {
+            const originalPopulate = populateDropdowns;
+            populateDropdowns = function() {
+                originalPopulate(); // Build dynamic choices from existing database entries
+
+                const tempSelect = document.getElementById('temp-filter');
+                const humidSelect = document.getElementById('humid-filter');
+
+                if (tempSelect && humidSelect) {
+                    const targetTempBand = "100-105 [Threat:100-104]";
+                    const targetHumidBand = "10-15%";
+
+                    // Ensure the temperature threat option exists
+                    if (![...tempSelect.options].some(o => o.value === targetTempBand)) {
+                        const opt = document.createElement('option');
+                        opt.value = targetTempBand;
+                        opt.textContent = targetTempBand;
+                        tempSelect.appendChild(opt);
+                    }
+
+                    // Ensure the humidity threat option exists
+                    if (![...humidSelect.options].some(o => o.value === targetHumidBand)) {
+                        const opt = document.createElement('option');
+                        opt.value = targetHumidBand;
+                        opt.textContent = targetHumidBand;
+                        humidSelect.appendChild(opt);
+                    }
+
+                    // Safely pre-populate selectors with user configuration values
+                    tempSelect.value = localStorage.getItem("thermostat_temp_selection");
+                    humidSelect.value = localStorage.getItem("thermostat_humid_selection");
+                }
+            };
+        }
+
+        // Intercept matrix rendering loop to toggle gray letter styling profiles
+        if (typeof renderFilteredMatrix === 'function') {
+            const originalRender = renderFilteredMatrix;
+            renderFilteredMatrix = function() {
+                originalRender(); // Draw baseline matrix structure
+
+                const tempSelect = document.getElementById('temp-filter');
+                const humidSelect = document.getElementById('humid-filter');
+                const container = document.getElementById('q-matrix-container');
+
+                if (tempSelect && humidSelect && container) {
+                    const hasNoInfoSelected = (tempSelect.value === "100-105 [Threat:100-104]" || humidSelect.value === "10-15%");
+                    if (hasNoInfoSelected) {
+                        container.classList.add('matrix-grayed-out');
+                    } else {
+                        container.classList.remove('matrix-grayed-out');
+                    }
+                }
+            };
+        }
+
+        // Monitor input shifts to record selection changes instantly
+        document.addEventListener("DOMContentLoaded", function() {
             const tempSelect = document.getElementById('temp-filter');
             const humidSelect = document.getElementById('humid-filter');
-            const defaultsBridge = document.getElementById("fallback-defaults");
 
             if (tempSelect && humidSelect) {
-                // Read from client storage or drop back to last committed database blocks
-                if (localStorage.getItem("thermostat_temp_selection")) {
-                    tempSelect.value = localStorage.getItem("thermostat_temp_selection");
-                } else if (defaultsBridge) {
-                    tempSelect.value = defaultsBridge.getAttribute("data-temp") || "<75";
-                }
+                tempSelect.addEventListener("change", function() {
+                    localStorage.setItem("thermostat_temp_selection", this.value);
+                    if (typeof renderFilteredMatrix === 'function') renderFilteredMatrix();
+                });
 
-                if (localStorage.getItem("thermostat_humid_selection")) {
-                    humidSelect.value = localStorage.getItem("thermostat_humid_selection");
-                } else if (defaultsBridge) {
-                    humidSelect.value = defaultsBridge.getAttribute("data-humid") || "20-25%";
-                }
+                humidSelect.addEventListener("change", function() {
+                    localStorage.setItem("thermostat_humid_selection", this.value);
+                    if (typeof renderFilteredMatrix === 'function') renderFilteredMatrix();
+                });
             }
-            evaluateTableColoration();
-        };
-    }
-
-    // Attach event listeners to watch user modifications to filters
-    const tempSelect = document.getElementById('temp-filter');
-    const humidSelect = document.getElementById('humid-filter');
-
-    if (tempSelect && humidSelect) {
-        tempSelect.addEventListener("change", function() {
-            localStorage.setItem("thermostat_temp_selection", this.value);
-            evaluateTableColoration();
         });
-
-        humidSelect.addEventListener("change", function() {
-            localStorage.setItem("thermostat_humid_selection", this.value);
-            evaluateTableColoration();
-        });
-    }
-});
-</script>
+    })();
+    </script>
 </body>
 </html>
