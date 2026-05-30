@@ -222,12 +222,8 @@
             "10-15%"
         ];
 
-        standardTemps.forEach(band => {
-            tempSet.add(band);
-        });
-        standardHumids.forEach(band => {
-            humidSet.add(band);
-        });
+        standardTemps.forEach(band => tempSet.add(band));
+        standardHumids.forEach(band => humidSet.add(band));
 
         globalQData.forEach(row => {
             if (row.temp_band) {
@@ -246,19 +242,13 @@
         const defaultHumidBand = defaultsBridge ? 
             defaultsBridge.getAttribute('data-humid') : "20-25%";
 
-        if (defaultTempBand) {
-            tempSet.add(defaultTempBand);
-        }
-        if (defaultHumidBand) {
-            humidSet.add(defaultHumidBand);
-        }
+        if (defaultTempBand) tempSet.add(defaultTempBand);
+        if (defaultHumidBand) humidSet.add(defaultHumidBand);
 
         const tempSelect = document.getElementById('temp-filter');
         const humidSelect = document.getElementById('humid-filter');
 
-        if (!tempSelect || !humidSelect) {
-            return;
-        }
+        if (!tempSelect || !humidSelect) return;
 
         const savedTempView = tempSelect.value;
         const savedHumidView = humidSelect.value;
@@ -266,34 +256,27 @@
         tempSelect.innerHTML = '';
         humidSelect.innerHTML = '';
 
-        // Inject dynamic option style metrics to shade empty profiles gray
         Array.from(tempSet).sort().forEach(band => {
             const hasData = loggedTemps.has(band) || band === defaultTempBand;
             const styleAttr = hasData ? "" : " style='color: #64748b;'";
-            tempSelect.innerHTML += `<option value="${band}"${styleAttr}>${band}</option>`;
+            tempSelect.innerHTML += 
+                `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
         Array.from(humidSet).sort().forEach(band => {
             const hasData = loggedHumids.has(band) || band === defaultHumidBand;
             const styleAttr = hasData ? "" : " style='color: #64748b;'";
-            humidSelect.innerHTML += `<option value="${band}"${styleAttr}>${band}</option>`;
+            humidSelect.innerHTML += 
+                `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
-        if (savedTempView) {
-            tempSelect.value = savedTempView;
-        } else if (sessionStorage.getItem("thermostat_temp_selection")) {
-            tempSelect.value = sessionStorage.getItem("thermostat_temp_selection");
-        } else {
-            tempSelect.value = defaultTempBand;
-        }
-
-        if (savedHumidView) {
-            humidSelect.value = savedHumidView;
-        } else if (sessionStorage.getItem("thermostat_humid_selection")) {
-            humidSelect.value = sessionStorage.getItem("thermostat_humid_selection");
-        } else {
-            humidSelect.value = defaultHumidBand;
-        }
+        tempSelect.value = savedTempView || 
+            sessionStorage.getItem("thermostat_temp_selection") || 
+            defaultTempBand;
+            
+        humidSelect.value = savedHumidView || 
+            sessionStorage.getItem("thermostat_humid_selection") || 
+            defaultHumidBand;
     }
 
     function renderFilteredMatrix() {
@@ -302,9 +285,7 @@
         const humidSelect = document.getElementById('humid-filter');
         const selectedPeakStr = document.getElementById('peak-filter').value;
 
-        if (!container || !tempSelect || !humidSelect) {
-            return;
-        }
+        if (!container || !tempSelect || !humidSelect) return;
 
         const selectedTemp = tempSelect.value;
         const selectedHumid = humidSelect.value;
@@ -317,44 +298,40 @@
                 isRowPeak === selectedPeakStr;
         });
 
-        // Criterion fulfilled: Hide table layout card completely on zero data conditions
+        // Hide table area completely if data coordinates do not exist
         if (filteredData.length === 0) {
-            container.innerHTML = `<div class="card"><p class="text-muted">No Q-Table data available for this weather state.</p></div>`;
+            container.innerHTML = '';
             return;
         }
 
         const standardTimeBlocks = [
             "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
-            "Early Afternoon", "Late Afternoon", "Peak Hours", "Evening", "Late Night"
+            "Early Afternoon", "Late Afternoon", "Peak Hours", "Evening", 
+            "Late Night"
         ];
 
-        // Isolate only the specific columns containing active records
-        const activeTimeBlocks = standardTimeBlocks.filter(time => {
-            return filteredData.some(row => row.time_block === time);
-        });
+        // Isolate columns that possess valid metrics exclusively
+        const activeTimeBlocks = standardTimeBlocks.filter(time => 
+            filteredData.some(row => row.time_block === time)
+        );
 
         if (activeTimeBlocks.length === 0) {
-            container.innerHTML = `<div class="card"><p class="text-muted">No Q-Table data available for this weather state.</p></div>`;
+            container.innerHTML = '';
             return;
         }
 
         const actionData = {};
-        const actionsSet = new Set();
+        const activeActionsSet = new Set();
 
         filteredData.forEach(row => {
             if (!actionData[row.action_taken]) {
                 actionData[row.action_taken] = {};
             }
             actionData[row.action_taken][row.time_block] = row.q_score;
+            activeActionsSet.add(row.action_taken);
         });
 
-        globalQData.forEach(row => {
-            if (row.action_taken) {
-                actionsSet.add(row.action_taken);
-            }
-        });
-
-        const actions = Array.from(actionsSet).sort();
+        const actions = Array.from(activeActionsSet).sort();
 
         let html = `<div class="card">
             <h2>Q-Matrix Overview</h2>
@@ -372,7 +349,8 @@
             html += `<tr><td class="action-cell"><strong>${action}</strong></td>`;
             
             activeTimeBlocks.forEach(time => {
-                const score = actionData[action] ? actionData[action][time] : undefined;
+                const score = actionData[action] ? 
+                    actionData[action][time] : undefined;
                 let cellContent = '<span class="empty-cell">-</span>';
                 let cellStyle = '';
 
