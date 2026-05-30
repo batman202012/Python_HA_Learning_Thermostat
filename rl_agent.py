@@ -53,13 +53,12 @@ def get_state_bands(temp, humidity, peak_temp=None):
 
     if humidity < 5:
         h_band = "<5%"
-    elif humidity > 60:
-        h_band = "60%+"
     else:
         for i, val in enumerate(h_list):
             if humidity < val:
                 h_lower_bound = h_list[i-1] if i > 0 else 0
                 h_band = f"{h_lower_bound}-{val}"
+                break
 
     # Weather Threat Assessment
     if peak_temp is not None:
