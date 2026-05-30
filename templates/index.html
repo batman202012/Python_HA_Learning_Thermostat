@@ -150,8 +150,12 @@
         const humidSet = new Set();
         
         globalQData.forEach(row => {
-            if (row.temp_band) tempSet.add(row.temp_band);
-            if (row.humidity_band) humidSet.add(row.humidity_band);
+            if (row.temp_band) {
+                tempSet.add(row.temp_band);
+            }
+            if (row.humidity_band) {
+                humidSet.add(row.humidity_band);
+            }
         });
 
         // Ensure unencountered extreme option profiles exist inside selection arrays
@@ -161,33 +165,45 @@
         const tempSelect = document.getElementById('temp-filter');
         const humidSelect = document.getElementById('humid-filter');
 
-        if (!tempSelect || !humidSelect) return;
+        if (!tempSelect || !humidSelect) {
+            return;
+        }
+
+        // Keep current view states across runtime adjustments
+        const savedTempView = tempSelect.value;
+        const savedHumidView = humidSelect.value;
 
         tempSelect.innerHTML = '';
         humidSelect.innerHTML = '';
 
-        // Build sorted options for temperature bands
         Array.from(tempSet).sort().forEach(band => {
             tempSelect.innerHTML += `<option value="${band}">${band}</option>`;
         });
         
-        // Build sorted options for humidity bands (SELECTOR TYPO FIXED)
         Array.from(humidSet).sort().forEach(band => {
             humidSelect.innerHTML += `<option value="${band}">${band}</option>`;
         });
 
-        // Pull fallback server contexts
-        const defaultsEl = document.getElementById('fallback-defaults');
-        const defaultTemp = defaultsEl ? defaultsEl.getAttribute('data-temp') : "<75";
-        const defaultHumid = defaultsEl ? defaultsEl.getAttribute('data-humid') : "20-25%";
+        const defaultsBridge = document.getElementById('fallback-defaults');
+        const defaultTempBand = defaultsBridge ? defaultsBridge.getAttribute('data-temp') : "<75";
+        const defaultHumidBand = defaultsBridge ? defaultsBridge.getAttribute('data-humid') : "20-25%";
 
-        // Enforce sticky pre-population from local cache storage or database history variables
-        tempSelect.value = localStorage.getItem("thermostat_temp_selection") || defaultTemp;
-        humidSelect.value = localStorage.getItem("thermostat_humid_selection") || defaultHumid;
+        // Pre-populate evaluation matrix
+        if (savedTempView) {
+            tempSelect.value = savedTempView;
+        } else if (sessionStorage.getItem("thermostat_temp_selection")) {
+            tempSelect.value = sessionStorage.getItem("thermostat_temp_selection");
+        } else {
+            tempSelect.value = defaultTempBand;
+        }
 
-        // Initialize state tracking variables
-        localStorage.setItem("thermostat_temp_selection", tempSelect.value);
-        localStorage.setItem("thermostat_humid_selection", humidSelect.value);
+        if (savedHumidView) {
+            humidSelect.value = savedHumidView;
+        } else if (sessionStorage.getItem("thermostat_humid_selection")) {
+            humidSelect.value = sessionStorage.getItem("thermostat_humid_selection");
+        } else {
+            humidSelect.value = defaultHumidBand;
+        }
     }
 
     function renderFilteredMatrix() {
@@ -196,12 +212,14 @@
         const humidSelect = document.getElementById('humid-filter');
         const selectedPeakStr = document.getElementById('peak-filter').value;
 
-        if (!container || !tempSelect || !humidSelect) return;
+        if (!container || !tempSelect || !humidSelect) {
+            return;
+        }
 
         const selectedTemp = tempSelect.value;
         const selectedHumid = humidSelect.value;
 
-        // Toggle low luminosity gray profiling when an empty edge band is selected
+        // Apply low-luminosity profiles to container context elements
         const hasNoInfoSelected = (selectedTemp === "100-105 [Threat:100-104]" || selectedHumid === "10-15%");
         if (hasNoInfoSelected) {
             container.classList.add('matrix-grayed-out');
@@ -209,18 +227,12 @@
             container.classList.remove('matrix-grayed-out');
         }
 
-        // Bulletproof Filter
         const filteredData = globalQData.filter(row => {
             const isRowPeak = (row.is_peak_pricing == 1 || row.is_peak_pricing === true) ? "true" : "false";
             return String(row.temp_band) === String(selectedTemp) && 
                 String(row.humidity_band) === String(selectedHumid) && 
                 isRowPeak === selectedPeakStr;
         });
-
-        if (filteredData.length === 0) {
-            container.innerHTML = `<div class="card"><p class="text-muted">No Q-Table data available for this weather state.</p></div>`;
-            return;
-        }
 
         const timeOrder = [
             "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
@@ -231,10 +243,26 @@
         const actionsSet = new Set();
 
         filteredData.forEach(row => {
-            if (!actionData[row.action_taken]) actionData[row.action_taken] = {};
+            if (!actionData[row.action_taken]) {
+                actionData[row.action_taken] = {};
+            }
             actionData[row.action_taken][row.time_block] = row.q_score;
-            actionsSet.add(row.action_taken);
         });
+
+        // Harvest action indices globally to verify structural dimensions
+        globalQData.forEach(row => {
+            if (row.action_taken) {
+                actionsSet.add(row.action_taken);
+            }
+        });
+
+        if (actionsSet.size === 0) {
+            actionsSet.add("Normal");
+            actionsSet.add("Pre-cool 2°F");
+            actionsSet.add("Pre-cool 4°F");
+            actionsSet.add("Night Drop 2°F");
+            actionsSet.add("Night Drop 2°F (Fan Only)");
+        }
 
         const actions = Array.from(actionsSet).sort();
 
@@ -259,6 +287,7 @@
                 let cellStyle = '';
 
                 if (score !== undefined) {
+                    cellContent = `export strong ${score.toFixed(1)}`;
                     cellContent = `<strong>${score.toFixed(1)}</strong>`;
                     cellStyle = `style="background-color: ${getHeatmapColor(score)}; color: #ffffff; text-shadow: 0px 1px 2px rgba(0,0,0,0.5);"`;
                 }
@@ -284,7 +313,9 @@
     }
 
     async function triggerRestart() {
-        if (!confirm("Are you sure you want to restart the AI Node?")) return;
+        if (!confirm("Are you sure you want to restart the AI Node?")) {
+            return;
+        }
 
         const statusMsg = document.getElementById('statusMessage');
         statusMsg.innerText = "Restarting... please wait.";
@@ -400,7 +431,6 @@
     </div>
 
     <script>
-        // Post a manual override to the Python backend
         async function updateSchedule() {
             const temp = document.getElementById('targetTemp').value;
             const block = document.getElementById('timeBlock').value;
@@ -410,7 +440,7 @@
                 const response = await fetch(`/api/schedule?time_block=${block}&target_temp=${temp}`, {
                     method: 'POST'
                 });
-                
+
                 if (response.ok) {
                     statusMsg.innerText = `Command sent: ${temp}°F for ${block} block.`;
                     statusMsg.style.color = "var(--success)";
@@ -441,7 +471,7 @@
 
             const ctx = document.getElementById('performanceChart').getContext('2d');
             const chartData = [...historyData].reverse();
-            
+
             const newStackedLabels = chartData.map(row => {
                 const d = new Date(row.date_time);
                 const timeString = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -450,12 +480,16 @@
 
             const actualTemps = chartData.map(row => row.actual_temp || 0);
             const targetTemps = chartData.map(row => {
-                if (row.target_temp !== null && row.target_temp !== undefined) return row.target_temp;
+                if (row.target_temp !== null && row.target_temp !== undefined) {
+                    return row.target_temp;
+                }
                 return row.actual_temp;
             });
 
             function generateTimeBlockAnnotations(data) {
-                if (!data || data.length === 0) return {};
+                if (!data || data.length === 0) {
+                    return {};
+                }
                 const annotations = {};
                 let currentBlock = null;
                 let startIndex = 0;
@@ -552,7 +586,9 @@
         async function fetchHistory() {
             try {
                 const response = await fetch('/api/history');
-                if (!response.ok) throw new Error("Network response was not ok");
+                if (!response.ok) {
+                    throw new Error("Network response was not ok");
+                }
                 const json = await response.json();
                 const tbody = document.getElementById('historyBody');
                 tbody.innerHTML = '';
@@ -565,7 +601,7 @@
                         const date = new Date(row.date_time).toLocaleString(undefined, {
                             month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'
                         });
-                        
+
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${date}</td>
@@ -593,7 +629,7 @@
                 const json = await response.json();
                 const viewer = document.getElementById('terminal-viewer');
                 const isScrolledToBottom = viewer.scrollHeight - viewer.clientHeight <= viewer.scrollTop + 10;
-                
+
                 viewer.textContent = json.logs || "System initialized. Awaiting data...";
                 if (isScrolledToBottom) {
                     viewer.scrollTop = viewer.scrollHeight;
@@ -603,7 +639,6 @@
             }
         }
 
-        // Initialize dashboard actions cleanly when variables load
         document.addEventListener("DOMContentLoaded", function() {
             loadQData();
             fetchHistory();
@@ -615,12 +650,12 @@
 
             if (tempSelect && humidSelect && peakSelect) {
                 tempSelect.addEventListener("change", function() {
-                    localStorage.setItem("thermostat_temp_selection", this.value);
+                    sessionStorage.setItem("thermostat_temp_selection", this.value);
                     renderFilteredMatrix();
                 });
 
                 humidSelect.addEventListener("change", function() {
-                    localStorage.setItem("thermostat_humid_selection", this.value);
+                    sessionStorage.setItem("thermostat_humid_selection", this.value);
                     renderFilteredMatrix();
                 });
 
