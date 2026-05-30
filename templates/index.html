@@ -232,7 +232,7 @@
 
         // Gather all existing weather bands from the array context safely
         globalQData.forEach(row => {
-            if (row.temp_band && !row.temp_band.startsWith("<") || row.temp_band === "<75 [Threat: <95]") {
+            if (row.temp_band && !row.temp_band.startsWith("<") && !row.temp_band == "<75" || row.temp_band === "<75 [Threat: <95]" || row.temp_band === "<75 [Threat: 95-99]" || row.temp_band === "<75 [Threat: <100-104]") || row.temp_band === "<75 [Threat: 105+]" {
                 tempSet.add(row.temp_band);
             }
             if (row.humidity_band && !row.humidity_band.startsWith("<") || row.humidity_band === "<5%") {
