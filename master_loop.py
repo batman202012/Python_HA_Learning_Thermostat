@@ -603,7 +603,6 @@ async def master_clock():
                         row = cursor.fetchone()
                         conn.close()
 
-                        ai_score_normal = row[0] if row else 0.0
                         if row and len(row) > 0:
                             ai_score_normal = row[0]
                         else:
