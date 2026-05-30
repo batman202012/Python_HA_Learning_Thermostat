@@ -230,9 +230,23 @@
         standardTemps.forEach(band => tempSet.add(band));
         standardHumids.forEach(band => humidSet.add(band));
 
-        // Gather all existing weather bands from the array context safely
+        function isAllowedBand(band) {
+            // Define the exact list of bands you want to allow
+            const allowed = [
+                "<75 [Threat: <95]",
+                "75-80 [Threat: <95]",
+                "80-85 [Threat: <95]",
+                "85-90 [Threat: <95]",
+                "90-95 [Threat: <95]",
+                "95-100 [Threat: <95]",
+                "100-105 [Threat:100-104]"
+            ];
+            return allowed.includes(band);
+        }
+
+        // Inside your populateDropdowns() loop:
         globalQData.forEach(row => {
-            if (row.temp_band && !row.temp_band.startsWith("<") && !row.temp_band == "<75" || row.temp_band === "<75 [Threat: <95]" || row.temp_band === "<75 [Threat: 95-99]" || row.temp_band === "<75 [Threat: <100-104]") || row.temp_band === "<75 [Threat: 105+]" {
+            if (row.temp_band && isAllowedBand(row.temp_band)) {
                 tempSet.add(row.temp_band);
             }
             if (row.humidity_band && !row.humidity_band.startsWith("<") || row.humidity_band === "<5%") {
