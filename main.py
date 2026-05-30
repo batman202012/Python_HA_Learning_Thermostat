@@ -106,12 +106,15 @@ async def dashboard(request: Request):
     default_temp = state.APP_STATE.get("last_written_temp", "<75")
     default_humid = state.APP_STATE.get("last_written_humid", "20-25%")
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "default_temp": default_temp,
-        "default_humid": default_humid,
-        # ... your other context variables ...
-    })
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "schedule": [],
+            "default_temp": default_temp,
+            "default_humid": default_humid,
+        },
+    )
 
 
 @app.post("/api/schedule")

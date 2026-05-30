@@ -43,7 +43,7 @@
         });
         
         Array.from(humidSet).sort().forEach(band => {
-            humidSelect.innerHTML += `<option value="${band}">${band}</option>`;
+            tempSelect.innerHTML += `<option value="${band}">${band}</option>`;
         });
     }
 
@@ -65,10 +65,7 @@
         });
 
         if (filteredData.length === 0) {
-            container.innerHTML = `<div class="matrix-card" style="text-align: center; padding: 40px; color: #475569;">
-                <h3>No Data Yet</h3>
-                <p>The AI hasn't explored this specific weather combination yet.</p>
-            </div>`;
+            container.innerHTML = `<div class="card"><p class="text-muted">No Q-Table data available for this weather state.</p></div>`;
             return;
         }
 
@@ -88,19 +85,17 @@
 
         const actions = Array.from(actionsSet).sort();
 
-        let html = `
-            <div class="matrix-card">
-                <h3 class="matrix-title">Showing Brain Data for: ${selectedTemp} | ${selectedHumid}</h3>
-                <div class="table-responsive">
-                    <table class="q-matrix-table">
-                        <thead>
-                            <tr>
-                                <th>Action \\ Time</th>
-                                ${timeOrder.map(time => `<th>${time}</th>`).join('')}
-                            </tr>
-                        </thead>
-                        <tbody>
-        `;
+        let html = `<div class="card">
+            <h2>Q-Matrix Overview</h2>
+            <div class="table-container">
+            <table class="q-table">
+            <thead>
+            <tr>
+            <th>Action / Time Block</th>
+            ${timeOrder.map(time => `<th>${time}</th>`).join('')}
+            </tr>
+            </thead>
+            <tbody>`;
 
         actions.forEach(action => {
             html += `<tr><td class="action-cell"><strong>${action}</strong></td>`;
@@ -111,11 +106,9 @@
                 let cellStyle = ''; // We will inject the inline CSS here
 
                 if (score !== undefined) {
-                    // Format the number and apply the dynamic heatmap background
                     cellContent = `<strong>${score.toFixed(1)}</strong>`;
                     cellStyle = `style="background-color: ${getHeatmapColor(score)}; color: #ffffff; text-shadow: 0px 1px 2px rgba(0,0,0,0.5);"`;
                 }
-                
                 html += `<td ${cellStyle}>${cellContent}</td>`;
             });
             
