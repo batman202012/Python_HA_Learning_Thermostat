@@ -206,25 +206,7 @@
         const loggedTemps = new Set();
         const loggedHumids = new Set();
 
-        const standardTemps = [
-            "<75 [Threat: <95]",
-            "<80 [Threat: <95]",
-            "<85 [Threat: <95]",
-            "<90 [Threat: <95]",
-            "<95 [Threat: <95]",
-            "100-105 [Threat:100-104]"
-        ];
-        const standardHumids = [
-            "<20%",
-            "<25%",
-            "<30%",
-            "30-45%",
-            "10-15%"
-        ];
-
-        standardTemps.forEach(band => tempSet.add(band));
-        standardHumids.forEach(band => humidSet.add(band));
-
+        // 1. Gather all actual bands harvested from the database
         globalQData.forEach(row => {
             if (row.temp_band) {
                 tempSet.add(row.temp_band);
@@ -236,19 +218,30 @@
             }
         });
 
+        // 2. Inject current live server parameters into the tracked sets
         const defaultsBridge = document.getElementById('fallback-defaults');
         const defaultTempBand = defaultsBridge ? 
             defaultsBridge.getAttribute('data-temp') : "<75";
         const defaultHumidBand = defaultsBridge ? 
             defaultsBridge.getAttribute('data-humid') : "20-25%";
 
-        if (defaultTempBand) tempSet.add(defaultTempBand);
-        if (defaultHumidBand) humidSet.add(defaultHumidBand);
+        if (defaultTempBand) {
+            tempSet.add(defaultTempBand);
+        }
+        if (defaultHumidBand) {
+            humidSet.add(defaultHumidBand);
+        }
+
+        // Add explicit base bands
+        tempSet.add("100-105 [Threat:100-104]");
+        humidSet.add("10-15%");
 
         const tempSelect = document.getElementById('temp-filter');
         const humidSelect = document.getElementById('humid-filter');
 
-        if (!tempSelect || !humidSelect) return;
+        if (!tempSelect || !humidSelect) {
+            return;
+        }
 
         const savedTempView = tempSelect.value;
         const savedHumidView = humidSelect.value;
@@ -256,14 +249,22 @@
         tempSelect.innerHTML = '';
         humidSelect.innerHTML = '';
 
+        // 3. Populate temperature while excluding nonsensical placeholder bounds
         Array.from(tempSet).sort().forEach(band => {
+            if (band.startsWith("<") && !band.includes("75")) {
+                return;
+            }
             const hasData = loggedTemps.has(band) || band === defaultTempBand;
             const styleAttr = hasData ? "" : " style='color: #64748b;'";
             tempSelect.innerHTML += 
                 `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
+        // 4. Populate humidity values filtering down unexecuted less than blocks
         Array.from(humidSet).sort().forEach(band => {
+            if (band.startsWith("<") && !band.includes("20")) {
+                return;
+            }
             const hasData = loggedHumids.has(band) || band === defaultHumidBand;
             const styleAttr = hasData ? "" : " style='color: #64748b;'";
             humidSelect.innerHTML += 
@@ -285,7 +286,9 @@
         const humidSelect = document.getElementById('humid-filter');
         const selectedPeakStr = document.getElementById('peak-filter').value;
 
-        if (!container || !tempSelect || !humidSelect) return;
+        if (!container || !tempSelect || !humidSelect) {
+            return;
+        }
 
         const selectedTemp = tempSelect.value;
         const selectedHumid = humidSelect.value;
@@ -298,7 +301,7 @@
                 isRowPeak === selectedPeakStr;
         });
 
-        // Hide table area completely if data coordinates do not exist
+        // If no rows match the active weather filters, hide the card section
         if (filteredData.length === 0) {
             container.innerHTML = '';
             return;
@@ -310,7 +313,7 @@
             "Late Night"
         ];
 
-        // Isolate columns that possess valid metrics exclusively
+        // Isolate columns possessing graded parameters cleanly
         const activeTimeBlocks = standardTimeBlocks.filter(time => 
             filteredData.some(row => row.time_block === time)
         );
