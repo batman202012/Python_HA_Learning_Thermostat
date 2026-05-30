@@ -518,6 +518,121 @@
     </div>
 
     <script>
+        async function updateSchedule() {
+            const temp = document.getElementById('targetTemp').value;
+            const block = document.getElementById('timeBlock').value;
+            const statusMsg = document.getElementById('statusMessage');
+
+            try {
+                const response = await fetch(`/api/schedule?time_block=${block}&target_temp=${temp}`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    statusMsg.innerText = `Command sent: ${temp}°F for ${block} block.`;
+                    statusMsg.style.color = "var(--success)";
+                    statusMsg.style.display = "block";
+                    setTimeout(() => {
+                        statusMsg.style.display = "none";
+                    }, 4000);
+                } else {
+                    throw new Error("API rejected the command.");
+                }
+            } catch (error) {
+                statusMsg.innerText = "Error transmitting configuration.";
+                statusMsg.style.color = "var(--danger)";
+                statusMsg.style.display = "block";
+            }
+        }
+
+        function updateChart(historyData) {
+            const blockColors = {
+                "Overnight": "rgba(30, 58, 138, 0.15)",
+                "Early Morning": "rgba(59, 130, 246, 0.15)",
+                "Late Morning": "rgba(14, 165, 233, 0.15)",
+                "Mid-Day": "rgba(234, 179, 8, 0.15)",
+                "Early Afternoon": "rgba(249, 115, 22, 0.15)",
+                "Late Afternoon": "rgba(239, 68, 68, 0.15)",
+                "Peak Hours": "rgba(220, 38, 38, 0.3)",
+                "Evening": "rgba(139, 92, 246, 0.15)",
+                "Late Night": "rgba(76, 29, 149, 0.15)"
+            };
+
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+            const chartData = [...historyData].reverse();
+
+            const newStackedLabels = chartData.map(row => {
+                const d = new Date(row.date_time);
+                const timeString = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                return [row.time_block, timeString]; 
+            });
+
+            const actualTemps = chartData.map(row => {
+                return row.actual_temp || 0;
+            });
+            const targetTemps = chartData.map(row => {
+                if (row.target_temp !== null && row.target_temp !== undefined) {
+                    return row.target_temp;
+                }
+                return row.actual_temp;
+            });
+
+        async function fetchHistory() {
+            try {
+                const response = await fetch('/api/history');
+                if (!response.ok) {
+                    throw new Error("Network response was not ok");
+                }
+                const json = await response.json();
+                const tbody = document.getElementById('historyBody');
+                tbody.innerHTML = '';
+
+                if (json.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="color: var(--text-muted);">No logs recorded yet.</td></tr>';
+                } else {
+                    json.data.forEach(row => {
+                        const scoreClass = row.reward_granted >= 0 ? 'score-positive' : 'score-negative';
+                        const date = new Date(row.date_time).toLocaleString(undefined, {
+                            month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'
+                        });
+
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${date}</td>
+                            <td>${row.actual_temp}°F / ${row.actual_humidity}%</td>
+                            <td>${row.action_taken}</td>
+                            <td>${row.user_overrides}</td>
+                            <td class="${scoreClass}">${row.reward_granted !== null ? row.reward_granted.toFixed(1) : 'N/A'}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                if (json.data) {
+                    updateChart(json.data);
+                }
+            } catch (error) {
+                console.error("Failed to load History", error);
+                document.getElementById('historyBody').innerHTML = '<tr><td colspan="5" style="color: var(--danger);">Error loading data. Check terminal.</td></tr>';
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const json = await response.json();
+                const viewer = document.getElementById('terminal-viewer');
+                const isScrolledToBottom = viewer.scrollHeight - viewer.clientHeight <= viewer.scrollTop + 10;
+
+                viewer.textContent = json.logs || "System initialized. Awaiting data...";
+                if (isScrolledToBottom) {
+                    viewer.scrollTop = viewer.scrollHeight;
+                }
+            } catch (error) {
+                console.error("Log fetch failed", error);
+            }
+        }
+
         document.addEventListener("DOMContentLoaded", function() {
             loadQData();
             fetchHistory();
