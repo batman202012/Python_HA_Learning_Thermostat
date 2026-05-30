@@ -7,7 +7,6 @@ import os
 import sys
 import sqlite3
 import asyncio
-import subprocess
 from collections import deque
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request

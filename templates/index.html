@@ -249,33 +249,40 @@
         tempSelect.innerHTML = '';
         humidSelect.innerHTML = '';
 
-        // 3. Populate temperature while excluding nonsensical placeholder bounds
+        // 1. Cross-Check Temperature against the active Humid Filter choice
         Array.from(tempSet).sort().forEach(band => {
-            if (band.startsWith("<") && !band.includes("75")) {
-                return;
-            }
-            const hasData = loggedTemps.has(band) || band === defaultTempBand;
-            const styleAttr = hasData ? "" : " style='color: #64748b;'";
+            const hasDataCombination = globalQData.some(row => {
+                const isPeakMatch = String(row.is_peak_pricing == 1) === selectedPeakStr;
+                return String(row.temp_band) === String(band) &&
+                       String(row.humidity_band) === String(activeHumidFilter) &&
+                       isPeakMatch;
+            });
+
+            const styleAttr = hasDataCombination ? "" : " style='color: #64748b;'";
             tempSelect.innerHTML += 
                 `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
-        // 4. Populate humidity values filtering down unexecuted less than blocks
+        // 2. Cross-Check Humidity against the active Temp Filter choice
         Array.from(humidSet).sort().forEach(band => {
-            if (band.startsWith("<") && !band.includes("5")) {
-                return;
-            }
-            const hasData = loggedHumids.has(band) || band === defaultHumidBand;
-            const styleAttr = hasData ? "" : " style='color: #64748b;'";
+            const hasDataCombination = globalQData.some(row => {
+                const isPeakMatch = String(row.is_peak_pricing == 1) === selectedPeakStr;
+                return String(row.temp_band) === String(activeTempFilter) &&
+                       String(row.humidity_band) === String(band) &&
+                       isPeakMatch;
+            });
+
+            const styleAttr = hasDataCombination ? "" : " style='color: #64748b;'";
             humidSelect.innerHTML += 
                 `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
-        tempSelect.value = savedTempView || 
+        // Reapply selection pointer positions smoothly
+        tempSelect.value = currentTempSelection || 
             sessionStorage.getItem("thermostat_temp_selection") || 
             defaultTempBand;
             
-        humidSelect.value = savedHumidView || 
+        humidSelect.value = currentHumidSelection || 
             sessionStorage.getItem("thermostat_humid_selection") || 
             defaultHumidBand;
     }
