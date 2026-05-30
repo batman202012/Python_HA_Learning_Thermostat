@@ -100,15 +100,16 @@ templates = Jinja2Templates(directory="templates")
 
 # --- WEB ROUTES ---
 @app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Serves the main frontend dashboard."""
-    # Fetch historical defaults for clean initialization
     default_temp = state.APP_STATE.get("last_written_temp", "<75")
     default_humid = state.APP_STATE.get("last_written_humid", "20-25%")
 
     return templates.TemplateResponse(
-        "index.html",
-        {
+        request=request,
+        name="index.html",
+        context={
             "request": request,
             "schedule": [],
             "default_temp": default_temp,
