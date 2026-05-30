@@ -39,7 +39,9 @@
         }
 
         @media (max-width: 800px) {
-            .container { grid-template-columns: 1fr; }
+            .container {
+                grid-template-columns: 1fr;
+            }
         }
 
         .card {
@@ -50,34 +52,97 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
         }
 
-        h1, h2, h3 { margin-top: 0; }
-        h1 { color: var(--accent); margin-bottom: 30px; text-align: center; width: 100%; }
-        h2 { font-size: 1.2rem; color: var(--text-muted); border-bottom: 1px solid var(--border); padding-bottom: 10px;}
+        h1, h2, h3 {
+            margin-top: 0;
+        }
 
-        /* Form Styles */
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-size: 0.9rem; color: var(--text-muted); }
+        h1 {
+            color: var(--accent);
+            margin-bottom: 30px;
+            text-align: center;
+            width: 100%;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
         input[type="number"], select {
-            width: 100%; padding: 10px; border-radius: 4px;
-            border: 1px solid var(--border); background-color: var(--bg-color);
-            color: var(--text-main); box-sizing: border-box;
+            width: 100%;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            box-sizing: border-box;
         }
-        button {
-            width: 100%; padding: 12px; border: none; border-radius: 4px;
-            background-color: var(--accent); color: #fff; font-weight: bold;
-            cursor: pointer; transition: background 0.2s;
-        }
-        button:hover { background-color: var(--accent-hover); }
 
-        /* Table Styles */
-        .table-container { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
-        th { color: var(--accent); font-weight: 600; background-color: rgba(0,0,0,0.2); }
-        tr:hover { background-color: rgba(255,255,255,0.02); }
-        
-        .score-positive { color: var(--success); font-weight: bold; }
-        .score-negative { color: var(--danger); font-weight: bold; }
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            background-color: var(--accent);
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: var(--accent-hover);
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            color: var(--accent);
+            font-weight: 600;
+            background-color: rgba(0,0,0,0.2);
+        }
+
+        tr:hover {
+            background-color: rgba(255,255,255,0.02);
+        }
+
+        .score-positive {
+            color: var(--success);
+            font-weight: bold;
+        }
+
+        .score-negative {
+            color: var(--danger);
+            font-weight: bold;
+        }
 
         .q-controls {
             display: flex;
@@ -118,7 +183,6 @@
             border-color: #4db8ff;
         }
 
-        /* High-priority override to gray out table headers, text cells, and metrics */
         .matrix-grayed-out table,
         .matrix-grayed-out th,
         .matrix-grayed-out td,
@@ -137,7 +201,7 @@
             const response = await fetch('/api/q_table');
             const result = await response.json();
             globalQData = result.data;
-            
+
             populateDropdowns();
             renderFilteredMatrix();
         } catch (error) {
@@ -148,7 +212,30 @@
     function populateDropdowns() {
         const tempSet = new Set();
         const humidSet = new Set();
-        
+
+        const standardTemps = [
+            "<75 [Threat: <95]",
+            "<80 [Threat: <95]",
+            "<85 [Threat: <95]",
+            "<90 [Threat: <95]",
+            "<95 [Threat: <95]",
+            "100-105 [Threat:100-104]"
+        ];
+        const standardHumids = [
+            "<20%",
+            "<25%",
+            "<30%",
+            "30-45%",
+            "10-15%"
+        ];
+
+        standardTemps.forEach(band => {
+            tempSet.add(band);
+        });
+        standardHumids.forEach(band => {
+            humidSet.add(band);
+        });
+
         globalQData.forEach(row => {
             if (row.temp_band) {
                 tempSet.add(row.temp_band);
@@ -158,9 +245,18 @@
             }
         });
 
-        // Ensure unencountered extreme option profiles exist inside selection arrays
-        tempSet.add("100-105 [Threat:100-104]");
-        humidSet.add("10-15%");
+        const defaultsBridge = document.getElementById('fallback-defaults');
+        const defaultTempBand = defaultsBridge ? 
+            defaultsBridge.getAttribute('data-temp') : "<75";
+        const defaultHumidBand = defaultsBridge ? 
+            defaultsBridge.getAttribute('data-humid') : "20-25%";
+
+        if (defaultTempBand) {
+            tempSet.add(defaultTempBand);
+        }
+        if (defaultHumidBand) {
+            humidSet.add(defaultHumidBand);
+        }
 
         const tempSelect = document.getElementById('temp-filter');
         const humidSelect = document.getElementById('humid-filter');
@@ -169,7 +265,6 @@
             return;
         }
 
-        // Keep current view states across runtime adjustments
         const savedTempView = tempSelect.value;
         const savedHumidView = humidSelect.value;
 
@@ -179,16 +274,11 @@
         Array.from(tempSet).sort().forEach(band => {
             tempSelect.innerHTML += `<option value="${band}">${band}</option>`;
         });
-        
+
         Array.from(humidSet).sort().forEach(band => {
             humidSelect.innerHTML += `<option value="${band}">${band}</option>`;
         });
 
-        const defaultsBridge = document.getElementById('fallback-defaults');
-        const defaultTempBand = defaultsBridge ? defaultsBridge.getAttribute('data-temp') : "<75";
-        const defaultHumidBand = defaultsBridge ? defaultsBridge.getAttribute('data-humid') : "20-25%";
-
-        // Pre-populate evaluation matrix
         if (savedTempView) {
             tempSelect.value = savedTempView;
         } else if (sessionStorage.getItem("thermostat_temp_selection")) {
@@ -219,20 +309,21 @@
         const selectedTemp = tempSelect.value;
         const selectedHumid = humidSelect.value;
 
-        // Apply low-luminosity profiles to container context elements
-        const hasNoInfoSelected = (selectedTemp === "100-105 [Threat:100-104]" || selectedHumid === "10-15%");
-        if (hasNoInfoSelected) {
-            container.classList.add('matrix-grayed-out');
-        } else {
-            container.classList.remove('matrix-grayed-out');
-        }
-
         const filteredData = globalQData.filter(row => {
-            const isRowPeak = (row.is_peak_pricing == 1 || row.is_peak_pricing === true) ? "true" : "false";
+            const isRowPeak = (row.is_peak_pricing == 1 || 
+                               row.is_peak_pricing === true) ? "true" : "false";
             return String(row.temp_band) === String(selectedTemp) && 
                 String(row.humidity_band) === String(selectedHumid) && 
                 isRowPeak === selectedPeakStr;
         });
+
+        const isTargetThreatBand = (selectedTemp === "100-105 [Threat:100-104]" || 
+                                    selectedHumid === "10-15%");
+        if (filteredData.length === 0 || isTargetThreatBand) {
+            container.classList.add('matrix-grayed-out');
+        } else {
+            container.classList.remove('matrix-grayed-out');
+        }
 
         const timeOrder = [
             "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
@@ -249,7 +340,6 @@
             actionData[row.action_taken][row.time_block] = row.q_score;
         });
 
-        // Harvest action indices globally to verify structural dimensions
         globalQData.forEach(row => {
             if (row.action_taken) {
                 actionsSet.add(row.action_taken);
@@ -287,7 +377,6 @@
                 let cellStyle = '';
 
                 if (score !== undefined) {
-                    cellContent = `export strong ${score.toFixed(1)}`;
                     cellContent = `<strong>${score.toFixed(1)}</strong>`;
                     cellStyle = `style="background-color: ${getHeatmapColor(score)}; color: #ffffff; text-shadow: 0px 1px 2px rgba(0,0,0,0.5);"`;
                 }
@@ -445,7 +534,9 @@
                     statusMsg.innerText = `Command sent: ${temp}°F for ${block} block.`;
                     statusMsg.style.color = "var(--success)";
                     statusMsg.style.display = "block";
-                    setTimeout(() => statusMsg.style.display = "none", 4000);
+                    setTimeout(() => {
+                        statusMsg.style.display = "none";
+                    }, 4000);
                 } else {
                     throw new Error("API rejected the command.");
                 }
@@ -478,7 +569,9 @@
                 return [row.time_block, timeString]; 
             });
 
-            const actualTemps = chartData.map(row => row.actual_temp || 0);
+            const actualTemps = chartData.map(row => {
+                return row.actual_temp || 0;
+            });
             const targetTemps = chartData.map(row => {
                 if (row.target_temp !== null && row.target_temp !== undefined) {
                     return row.target_temp;
