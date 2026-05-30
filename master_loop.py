@@ -604,10 +604,14 @@ async def master_clock():
                         conn.close()
 
                         ai_score_normal = row[0] if row else 0.0
+                        if row and len(row) > 0:
+                            ai_score_normal = row[0]
+                        else:
+                            ai_score_normal = 0.0
 
                         # Ask the DB how many times the AI has seen this exact weather
                         experience_count = database.get_state_experience_count(current_block,
-                                                                                temp_band, humid_band, is_peak)
+                                                                               temp_band, humid_band, is_peak)
 
                         if forecast_rec and chosen_action == "Normal":
                             # I lowered the threshold to 3. Getting 3 days of exact 95F+ weather
