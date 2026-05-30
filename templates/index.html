@@ -182,15 +182,6 @@
         .filter-group select:focus {
             border-color: #4db8ff;
         }
-
-        .matrix-grayed-out table,
-        .matrix-grayed-out th,
-        .matrix-grayed-out td,
-        .matrix-grayed-out td strong,
-        .matrix-grayed-out td span {
-            color: #9ca3af !important;
-            text-shadow: none !important;
-        }
     </style>
     <script>
     let globalQData = [];
@@ -212,6 +203,8 @@
     function populateDropdowns() {
         const tempSet = new Set();
         const humidSet = new Set();
+        const loggedTemps = new Set();
+        const loggedHumids = new Set();
 
         const standardTemps = [
             "<75 [Threat: <95]",
@@ -239,9 +232,11 @@
         globalQData.forEach(row => {
             if (row.temp_band) {
                 tempSet.add(row.temp_band);
+                loggedTemps.add(row.temp_band);
             }
             if (row.humidity_band) {
                 humidSet.add(row.humidity_band);
+                loggedHumids.add(row.humidity_band);
             }
         });
 
@@ -271,12 +266,17 @@
         tempSelect.innerHTML = '';
         humidSelect.innerHTML = '';
 
+        // Inject dynamic option style metrics to shade empty profiles gray
         Array.from(tempSet).sort().forEach(band => {
-            tempSelect.innerHTML += `<option value="${band}">${band}</option>`;
+            const hasData = loggedTemps.has(band) || band === defaultTempBand;
+            const styleAttr = hasData ? "" : " style='color: #64748b;'";
+            tempSelect.innerHTML += `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
         Array.from(humidSet).sort().forEach(band => {
-            humidSelect.innerHTML += `<option value="${band}">${band}</option>`;
+            const hasData = loggedHumids.has(band) || band === defaultHumidBand;
+            const styleAttr = hasData ? "" : " style='color: #64748b;'";
+            humidSelect.innerHTML += `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
         if (savedTempView) {
@@ -317,18 +317,26 @@
                 isRowPeak === selectedPeakStr;
         });
 
-        const isTargetThreatBand = (selectedTemp === "100-105 [Threat:100-104]" || 
-                                    selectedHumid === "10-15%");
-        if (filteredData.length === 0 || isTargetThreatBand) {
-            container.classList.add('matrix-grayed-out');
-        } else {
-            container.classList.remove('matrix-grayed-out');
+        // Criterion fulfilled: Hide table layout card completely on zero data conditions
+        if (filteredData.length === 0) {
+            container.innerHTML = `<div class="card"><p class="text-muted">No Q-Table data available for this weather state.</p></div>`;
+            return;
         }
 
-        const timeOrder = [
+        const standardTimeBlocks = [
             "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
             "Early Afternoon", "Late Afternoon", "Peak Hours", "Evening", "Late Night"
         ];
+
+        // Isolate only the specific columns containing active records
+        const activeTimeBlocks = standardTimeBlocks.filter(time => {
+            return filteredData.some(row => row.time_block === time);
+        });
+
+        if (activeTimeBlocks.length === 0) {
+            container.innerHTML = `<div class="card"><p class="text-muted">No Q-Table data available for this weather state.</p></div>`;
+            return;
+        }
 
         const actionData = {};
         const actionsSet = new Set();
@@ -346,14 +354,6 @@
             }
         });
 
-        if (actionsSet.size === 0) {
-            actionsSet.add("Normal");
-            actionsSet.add("Pre-cool 2°F");
-            actionsSet.add("Pre-cool 4°F");
-            actionsSet.add("Night Drop 2°F");
-            actionsSet.add("Night Drop 2°F (Fan Only)");
-        }
-
         const actions = Array.from(actionsSet).sort();
 
         let html = `<div class="card">
@@ -363,7 +363,7 @@
             <thead>
             <tr>
             <th>Action / Time Block</th>
-            ${timeOrder.map(time => `<th>${time}</th>`).join('')}
+            ${activeTimeBlocks.map(time => `<th>${time}</th>`).join('')}
             </tr>
             </thead>
             <tbody>`;
@@ -371,7 +371,7 @@
         actions.forEach(action => {
             html += `<tr><td class="action-cell"><strong>${action}</strong></td>`;
             
-            timeOrder.forEach(time => {
+            activeTimeBlocks.forEach(time => {
                 const score = actionData[action] ? actionData[action][time] : undefined;
                 let cellContent = '<span class="empty-cell">-</span>';
                 let cellStyle = '';
