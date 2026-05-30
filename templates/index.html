@@ -201,46 +201,24 @@
     }
 
     function populateDropdowns() {
-        const tempSelect = document.getElementById('temp-filter');
-        const humidSelect = document.getElementById('humid-filter');
-        const selectedPeakStr = document.getElementById('peak-filter') ? 
-            document.getElementById('peak-filter').value : "false";
-
-        if (!tempSelect || !humidSelect) {
-            return;
-        }
-
-        // Capture user selections before clearing out items
-        const currentTempSelection = tempSelect.value;
-        const currentHumidSelection = humidSelect.value;
-
         const tempSet = new Set();
         const humidSet = new Set();
+        const loggedTemps = new Set();
+        const loggedHumids = new Set();
 
-        // Standard structural definitions
-        const standardTemps = [
-            "<75 [Threat: <95]",
-            "100-105 [Threat:100-104]"
-        ];
-        const standardHumids = [
-            "30-45%",
-            "10-15%"
-        ];
-
-        standardTemps.forEach(band => tempSet.add(band));
-        standardHumids.forEach(band => humidSet.add(band));
-
-        // Gather all existing weather bands from the array context safely
+        // 1. Gather all actual bands harvested from the database
         globalQData.forEach(row => {
-            if (row.temp_band && !row.temp_band.startsWith("<") || row.temp_band === "<75 [Threat: <95]") {
+            if (row.temp_band) {
                 tempSet.add(row.temp_band);
+                loggedTemps.add(row.temp_band);
             }
-            if (row.humidity_band && !row.humidity_band.startsWith("<") || row.humidity_band === "20-25%") {
+            if (row.humidity_band) {
                 humidSet.add(row.humidity_band);
+                loggedHumids.add(row.humidity_band);
             }
         });
 
-        // Recover background configuration parameters
+        // 2. Inject current live server parameters into the tracked sets
         const defaultsBridge = document.getElementById('fallback-defaults');
         const defaultTempBand = defaultsBridge ? 
             defaultsBridge.getAttribute('data-temp') : "<75 [Threat: <95]";
@@ -254,47 +232,50 @@
             humidSet.add(defaultHumidBand);
         }
 
-        // Determine intermediate current working keys to evaluate cross dependencies
-        const activeTempFilter = currentTempSelection || defaultTempBand;
-        const activeHumidFilter = currentHumidSelection || defaultHumidBand;
+        // Add explicit base bands
+        tempSet.add("100-105 [Threat:100-104]");
+        humidSet.add("10-15%");
+
+        const tempSelect = document.getElementById('temp-filter');
+        const humidSelect = document.getElementById('humid-filter');
+
+        if (!tempSelect || !humidSelect) {
+            return;
+        }
+
+        const savedTempView = tempSelect.value;
+        const savedHumidView = humidSelect.value;
 
         tempSelect.innerHTML = '';
         humidSelect.innerHTML = '';
 
-        // 1. Cross-Check Temperature against the active Humid Filter choice
+        // 3. Populate temperature while excluding nonsensical placeholder bounds
         Array.from(tempSet).sort().forEach(band => {
-            const hasDataCombination = globalQData.some(row => {
-                const isPeakMatch = String(row.is_peak_pricing == 1) === selectedPeakStr;
-                return String(row.temp_band) === String(band) &&
-                       String(row.humidity_band) === String(activeHumidFilter) &&
-                       isPeakMatch;
-            });
-
-            const styleAttr = hasDataCombination ? "" : " style='color: #64748b;'";
+            if (band.startsWith("<") && !band.includes("75")) {
+                return;
+            }
+            const hasData = loggedTemps.has(band) || band === defaultTempBand;
+            const styleAttr = hasData ? "" : " style='color: #64748b;'";
             tempSelect.innerHTML += 
                 `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
-        // 2. Cross-Check Humidity against the active Temp Filter choice
+        // 4. Populate humidity values filtering down unexecuted less than blocks
         Array.from(humidSet).sort().forEach(band => {
-            const hasDataCombination = globalQData.some(row => {
-                const isPeakMatch = String(row.is_peak_pricing == 1) === selectedPeakStr;
-                return String(row.temp_band) === String(activeTempFilter) &&
-                       String(row.humidity_band) === String(band) &&
-                       isPeakMatch;
-            });
-
-            const styleAttr = hasDataCombination ? "" : " style='color: #64748b;'";
+            if (band.startsWith("<") && !band.includes("5")) {
+                return;
+            }
+            const hasData = loggedHumids.has(band) || band === defaultHumidBand;
+            const styleAttr = hasData ? "" : " style='color: #64748b;'";
             humidSelect.innerHTML += 
                 `<option value="${band}"${styleAttr}>${band}</option>`;
         });
 
-        // Reapply selection pointer positions smoothly
-        tempSelect.value = currentTempSelection || 
+        tempSelect.value = savedTempView || 
             sessionStorage.getItem("thermostat_temp_selection") || 
             defaultTempBand;
             
-        humidSelect.value = currentHumidSelection || 
+        humidSelect.value = savedHumidView || 
             sessionStorage.getItem("thermostat_humid_selection") || 
             defaultHumidBand;
     }
@@ -320,6 +301,7 @@
                 isRowPeak === selectedPeakStr;
         });
 
+        // If no rows match the active weather filters, hide the card section
         if (filteredData.length === 0) {
             container.innerHTML = '';
             return;
@@ -331,6 +313,7 @@
             "Late Night"
         ];
 
+        // Isolate columns possessing graded parameters cleanly
         const activeTimeBlocks = standardTimeBlocks.filter(time => 
             filteredData.some(row => row.time_block === time)
         );
@@ -577,6 +560,103 @@
                 return row.actual_temp;
             });
 
+            function generateTimeBlockAnnotations(data) {
+                if (!data || data.length === 0) {
+                    return {};
+                }
+                const annotations = {};
+                let currentBlock = null;
+                let startIndex = 0;
+
+                data.forEach((row, index) => {
+                    const blockName = row.time_block;
+                    if (blockName !== currentBlock) {
+                        if (currentBlock !== null) {
+                            annotations[`block_${index}`] = {
+                                type: 'box',
+                                xMin: startIndex - 0.5, 
+                                xMax: index - 0.5,
+                                backgroundColor: blockColors[currentBlock] || 'rgba(255,255,255,0.05)',
+                                borderWidth: 0,
+                                drawTime: 'beforeDraw'
+                            };
+                        }
+                        currentBlock = blockName;
+                        startIndex = index;
+                    }
+                });
+
+                if (currentBlock !== null) {
+                    annotations['block_final'] = {
+                        type: 'box',
+                        xMin: startIndex - 0.5,
+                        xMax: data.length - 0.5,
+                        backgroundColor: blockColors[currentBlock] || 'rgba(255,255,255,0.05)',
+                        borderWidth: 0,
+                        drawTime: 'beforeDraw'
+                    };
+                }
+                return annotations;
+            }
+
+            const blockAnnotations = generateTimeBlockAnnotations(historyData);
+
+            if (performanceChart) {
+                performanceChart.data.labels = newStackedLabels;
+                performanceChart.data.datasets[0].data = actualTemps;
+                performanceChart.data.datasets[1].data = targetTemps;
+                performanceChart.options.plugins.annotation.annotations = blockAnnotations;
+                performanceChart.update();
+            } else {
+                performanceChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: newStackedLabels,
+                        datasets: [
+                            {
+                                label: 'Actual Temp (°F)',
+                                data: actualTemps,
+                                borderColor: '#f43f5e',
+                                backgroundColor: 'rgba(244, 63, 94, 0.1)',
+                                borderWidth: 3,
+                                tension: 0.4,
+                                fill: true
+                            },
+                            {
+                                label: 'Target Temp (°F)',
+                                data: targetTemps,
+                                borderColor: '#38bdf8',
+                                borderDash: [5, 5],
+                                borderWidth: 2,
+                                tension: 0,
+                                fill: false
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { labels: { color: '#e2e8f0' } },
+                            annotation: { annotations: blockAnnotations }
+                        },
+                        scales: {
+                            x: {
+                                type: 'category',
+                                grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true }
+                            },
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                ticks: { color: '#94a3b8' },
+                                title: { display: true, text: 'Temperature (°F)', color: '#e2e8f0' }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
         async function fetchHistory() {
             try {
                 const response = await fetch('/api/history');
@@ -645,18 +725,15 @@
             if (tempSelect && humidSelect && peakSelect) {
                 tempSelect.addEventListener("change", function() {
                     sessionStorage.setItem("thermostat_temp_selection", this.value);
-                    populateDropdowns(); // Trigger updates on cross selector elements
                     renderFilteredMatrix();
                 });
 
                 humidSelect.addEventListener("change", function() {
                     sessionStorage.setItem("thermostat_humid_selection", this.value);
-                    populateDropdowns(); // Trigger updates on cross selector elements
                     renderFilteredMatrix();
                 });
 
                 peakSelect.addEventListener("change", function() {
-                    populateDropdowns();
                     renderFilteredMatrix();
                 });
             }
