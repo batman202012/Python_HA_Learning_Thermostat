@@ -20,6 +20,7 @@ import config
 import database
 import ha_api
 import master_loop
+import state
 
 terminal_buffer = deque(maxlen=100)
 
@@ -101,11 +102,16 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Serves the main frontend dashboard."""
-    return templates.TemplateResponse(
-        request=request,
-        name="index.html",
-        context={"schedule": []}
-    )
+    # Fetch historical defaults for clean initialization
+    default_temp = state.APP_STATE.get("last_written_temp", "<75")
+    default_humid = state.APP_STATE.get("last_written_humid", "20-25%")
+
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "default_temp": default_temp,
+        "default_humid": default_humid,
+        # ... your other context variables ...
+    })
 
 
 @app.post("/api/schedule")

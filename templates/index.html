@@ -619,5 +619,77 @@
         // Refresh Terminal every 5 seconds for live feedback
         setInterval(fetchLogs, 5000);
     </script>
+
+    <div id="fallback-defaults" 
+        data-temp="{{ default_temp }}" 
+        data-humid="{{ default_humid }}" 
+        style="display: none;">
+    </div>
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Target your exact element IDs (Verify these match your actual HTML element IDs)
+        const tempSelect = document.getElementById("temp_band") || document.querySelector("select[name='temp_band']");
+        const humidSelect = document.getElementById("humidity_band") || document.querySelector("select[name='humidity_band']");
+        const mainTable = document.querySelector("table"); 
+
+        // Retrieve embedded baseline configurations
+        const defaultsBridge = document.getElementById("fallback-defaults");
+        const defaultTempBand = defaultsBridge ? defaultsBridge.getAttribute("data-temp") : "<75";
+        const defaultHumidBand = defaultsBridge ? defaultsBridge.getAttribute("data-humid") : "20-25%";
+
+        // 1. FIX: Restore from cache or default to the state from 2 blocks ago
+        if (localStorage.getItem("thermostat_temp_selection")) {
+            tempSelect.value = localStorage.getItem("thermostat_temp_selection");
+        } else {
+            tempSelect.value = defaultTempBand;
+        }
+
+        if (localStorage.getItem("thermostat_humid_selection")) {
+            humidSelect.value = localStorage.getItem("thermostat_humid_selection");
+        } else {
+            humidSelect.value = defaultHumidBand;
+        }
+
+        // 2. Dynamic text-color shifter for empty/extreme bands
+        function evaluateTableColoration() {
+            if (!mainTable) return;
+            
+            const hasNoInfoSelected = (tempSelect.value === "100-105 [Threat:100-104]" || humidSelect.value === "10-15%");
+
+            if (hasNoInfoSelected) {
+                // Apply inline gray text color shift
+                mainTable.style.color = "#9ca3af"; 
+                
+                // Override explicit text-white style tags inside headers/cells if present
+                mainTable.querySelectorAll(".text-white, th, td").forEach(el => {
+                    el.classList.remove("text-white");
+                    el.style.color = "#9ca3af"; // Tailwind gray-400 hex profile
+                });
+            } else {
+                // Revert to baseline configuration
+                mainTable.style.color = "";
+                mainTable.querySelectorAll("th, td").forEach(el => {
+                    el.style.color = "";
+                    el.classList.add("text-white");
+                });
+            }
+        }
+
+        // 3. Set up event state listeners
+        tempSelect.addEventListener("change", function() {
+            localStorage.setItem("thermostat_temp_selection", this.value);
+            evaluateTableColoration();
+        });
+
+        humidSelect.addEventListener("change", function() {
+            localStorage.setItem("thermostat_humid_selection", this.value);
+            evaluateTableColoration();
+        });
+
+        // Run evaluations immediately upon drawing the initial elements
+        evaluateTableColoration();
+    });
+    </script>
 </body>
 </html>

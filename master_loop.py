@@ -426,7 +426,9 @@ async def master_clock():
                             state.APP_STATE["target_reached_time"] = datetime.fromisoformat(stored_reached)
                             print("🧠 Stopwatch Recovered: Target was previously reached at "
                                   f"{state.APP_STATE['target_reached_time'].strftime('%H:%M:%S')}")
-
+                        # Restore default view memory on boot
+                        state.APP_STATE["last_written_temp"] = database.get_session_state("last_written_temp") or "<75"
+                        state.APP_STATE["last_written_humid"] = database.get_session_state("last_written_humid") or "20-25%"
                         is_recovery_successful = True
                     else:
                         print(f"🆕 System start: No matching session found. Starting fresh for {current_block}.")
@@ -440,9 +442,11 @@ async def master_clock():
                     finished_temp_band = finished_bands[0]
                     finished_humid_band = finished_bands[1]
                     finished_action = state.APP_STATE.get("locked_action", "Normal")
+
                     current_immediate_reward = await grade_current_block(
                         finished_block, is_peak
                     )
+
                     pending = state.APP_STATE.get("pending_grade")
                     if pending:
                         gamma = 0.65
@@ -450,39 +454,47 @@ async def master_clock():
                         final_past_reward = pending["immediate_reward"] + realized_future_bonus
                         print("🕰️ Delayed Grading: Passing actual future physics "
                             f"({realized_future_bonus:.1f}) back to {pending['block']}")
+
                         database.update_q_score(
                             pending["block"], pending["temp"], pending["humid"],
                             pending["peak"], pending["action"], final_past_reward
                         )
+
+                        # Capture bands from two blocks ago
+                        state.APP_STATE["last_written_temp"] = pending["temp"]
+                        state.APP_STATE["last_written_humid"] = pending["humid"]
+                        database.save_session_state("last_written_temp", pending["temp"])
+                        database.save_session_state("last_written_humid", pending["humid"])
+
                         state.APP_STATE["pending_grade"] = None
                         state.clear_waiting_room()
 
-                    is_override = state.APP_STATE.get("is_manual_override")
-                    had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
-                    bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
+                        is_override = state.APP_STATE.get("is_manual_override")
+                        had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
+                        bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
 
-                    # Evaluate intervention parameters and protect waiting room during AQ events
-                    if is_override and not bypass_wipe:
-                        print("🛑 Human intervened. AI gets no future credit. Wiping room.")
-                        state.APP_STATE["pending_grade"] = None
-                        state.clear_waiting_room()
-                        state.APP_STATE["is_manual_override"] = False
-                    else:
-                        if is_override and bypass_wipe:
-                            print("🍃 AQ Venting active. Preserving waiting room credit.")
+                        # Evaluate intervention parameters and protect waiting room during AQ events
+                        if is_override and not bypass_wipe:
+                            print("🛑 Human intervened. AI gets no future credit. Wiping room.")
+                            state.APP_STATE["pending_grade"] = None
+                            state.clear_waiting_room()
+                            state.APP_STATE["is_manual_override"] = False
+                        else:
+                            if is_override and bypass_wipe:
+                                print("🍃 AQ Venting active. Preserving waiting room credit.")
 
-                        print(f"⏳ Placing '{finished_block}' into the JSON waiting room.")
-                        pending_data = {
-                            "block": finished_block,
-                            "temp": finished_temp_band,
-                            "humid": finished_humid_band,
-                            "peak": is_peak,
-                            "action": finished_action,
-                            "immediate_reward": current_immediate_reward
-                        }
-                        state.APP_STATE["pending_grade"] = pending_data
-                        state.APP_STATE["is_manual_override"] = False
-                        state.save_waiting_room(pending_data)
+                            print(f"⏳ Placing '{finished_block}' into the JSON waiting room.")
+                            pending_data = {
+                                "block": finished_block,
+                                "temp": finished_temp_band,
+                                "humid": finished_humid_band,
+                                "peak": is_peak,
+                                "action": finished_action,
+                                "immediate_reward": current_immediate_reward
+                            }
+                            state.APP_STATE["pending_grade"] = pending_data
+                            state.APP_STATE["is_manual_override"] = False
+                            state.save_waiting_room(pending_data)
 
                 # 3. Apply "Clean Slate" WIPES (Only if starting fresh!)
                 if (is_new_block and not is_startup) or (is_startup and not is_recovery_successful):
