@@ -53,6 +53,8 @@ def get_state_bands(temp, humidity, peak_temp=None):
 
     if humidity < 5:
         h_band = "<5%"
+    elif humidity > 60:
+        h_band = "60%+"
     else:
         for i, val in enumerate(h_list):
             if humidity < val:
