@@ -272,7 +272,10 @@ function populateDropdowns() {
             humidSelect.value = defaultHumid;
             sessionStorage.setItem("thermostat_humid_selection", defaultHumid);
             uiChanged = true;
-        }
+        } else if (defaultHumid) {
+        // Log a warning to the console if the backend variable fails to match the UI options
+        console.warn("Humidity band not found in options:", defaultHumid);
+    }
 
         if (uiChanged) {
             renderFilteredMatrix();

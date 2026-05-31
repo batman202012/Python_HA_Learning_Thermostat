@@ -424,11 +424,20 @@ async def master_clock():
                         stored_reached = database.get_session_state("target_reached_time")
                         if stored_reached:
                             state.APP_STATE["target_reached_time"] = datetime.fromisoformat(stored_reached)
-                            print("🧠 Stopwatch Recovered: Target was previously reached at "
-                                  f"{state.APP_STATE['target_reached_time'].strftime('%H:%M:%S')}")
-                        # Restore default view memory on boot
-                        state.APP_STATE["last_written_temp"] = database.get_session_state("last_written_temp") or "<75"
-                        state.APP_STATE["last_written_humid"] = database.get_session_state("last_written_humid") or "20-25%"
+                            print(
+                                "🧠 Stopwatch Recovered: Target was previously reached at "
+                                f"{state.APP_STATE['target_reached_time'].strftime('%H:%M:%S')}"
+                            )
+
+                        # Restore the dashboard pointer so it survives a container restart
+                        state.APP_STATE["last_written_temp"] = database.get_session_state(
+                            "last_written_temp"
+                        ) or "<75"
+
+                        state.APP_STATE["last_written_humid"] = database.get_session_state(
+                            "last_written_humid"
+                        ) or "20-25%"
+
                         is_recovery_successful = True
                     else:
                         print(f"🆕 System start: No matching session found. Starting fresh for {current_block}.")
@@ -452,17 +461,20 @@ async def master_clock():
                         gamma = 0.65
                         realized_future_bonus = gamma * current_immediate_reward
                         final_past_reward = pending["immediate_reward"] + realized_future_bonus
-                        print("🕰️ Delayed Grading: Passing actual future physics "
-                            f"({realized_future_bonus:.1f}) back to {pending['block']}")
+                        print(
+                            "🕰️ Delayed Grading: Passing actual future physics "
+                            f"({realized_future_bonus:.1f}) back to {pending['block']}"
+                        )
 
                         database.update_q_score(
                             pending["block"], pending["temp"], pending["humid"],
                             pending["peak"], pending["action"], final_past_reward
                         )
 
-                        # Capture bands from two blocks ago
+                        # Capture the weather bands of the block we just graded
                         state.APP_STATE["last_written_temp"] = pending["temp"]
                         state.APP_STATE["last_written_humid"] = pending["humid"]
+                        
                         database.save_session_state("last_written_temp", pending["temp"])
                         database.save_session_state("last_written_humid", pending["humid"])
 
