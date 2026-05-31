@@ -266,6 +266,9 @@ function populateDropdowns() {
             tempSelect.value = defaultTemp;
             sessionStorage.setItem("thermostat_temp_selection", defaultTemp);
             uiChanged = true;
+        } else if (defaultTemp) {
+            // Log a warning to the console if the backend variable fails to match the UI options
+            console.warn("Temperature band not found in options:", defaultTemp);
         }
 
         if (defaultHumid && Array.from(humidSelect.options).some(opt => opt.value === defaultHumid)) {

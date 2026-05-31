@@ -474,7 +474,7 @@ async def master_clock():
                         # Capture the weather bands of the block we just graded
                         state.APP_STATE["last_written_temp"] = pending["temp"]
                         state.APP_STATE["last_written_humid"] = pending["humid"]
-                        
+
                         database.save_session_state("last_written_temp", pending["temp"])
                         database.save_session_state("last_written_humid", pending["humid"])
 
