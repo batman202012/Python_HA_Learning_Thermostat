@@ -99,17 +99,45 @@ templates = Jinja2Templates(directory="templates")
 
 # --- WEB ROUTES ---
 @app.get("/", response_class=HTMLResponse)
-@app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Serves the main frontend dashboard."""
-    default_temp = state.APP_STATE.get("last_written_temp", "<75")
-    default_humid = state.APP_STATE.get("last_written_humid", "20-25%")
+    
+    # 1. Try to pull from live state first
+    default_temp = state.APP_STATE.get("last_written_temp")
+    default_humid = state.APP_STATE.get("last_written_humid")
+
+    # 2. If state is empty (e.g., on a fresh restart), pull a known-good row from the DB
+    if not default_temp or not default_humid:
+        try:
+            conn = sqlite3.connect(config.DB_PATH)
+            cursor = conn.cursor()
+            # Grab the single most successful state the AI has ever recorded
+            cursor.execute('''
+                SELECT temp_band, humidity_band 
+                FROM q_table 
+                ORDER BY q_score DESC 
+                LIMIT 1
+            ''')
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                default_temp = row[0]
+                default_humid = row[1]
+            else:
+                # Absolute fallback only if the database is 100% completely empty
+                default_temp = "<75"
+                default_humid = "20-25%"
+        except Exception as e:
+            print(f"Error fetching fallback Q-table default: {e}")
+            default_temp = "<75"
+            default_humid = "20-25%"
 
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
-            "request": request,
+            "request": request,  # Required by FastAPI templates
             "schedule": [],
             "default_temp": default_temp,
             "default_humid": default_humid,

@@ -353,21 +353,11 @@ function populateDropdowns() {
             return;
         }
 
-        const standardTimeBlocks = [
+        const activeTimeBlocks = [
             "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
             "Early Afternoon", "Late Afternoon", "Peak Hours", "Evening", 
             "Late Night"
         ];
-
-        // Isolate columns possessing graded parameters cleanly
-        const activeTimeBlocks = standardTimeBlocks.filter(time => 
-            filteredData.some(row => row.time_block === time)
-        );
-
-        if (activeTimeBlocks.length === 0) {
-            container.innerHTML = '';
-            return;
-        }
 
         const actionData = {};
         const activeActionsSet = new Set();
