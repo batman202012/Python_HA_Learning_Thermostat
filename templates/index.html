@@ -200,7 +200,7 @@
         }
     }
 
-    function populateDropdowns() {
+function populateDropdowns() {
         const tempSet = new Set();
         const humidSet = new Set();
 
@@ -218,10 +218,13 @@
 
         const tempSelect = document.getElementById('temp-filter');
         const humidSelect = document.getElementById('humid-filter');
+        
+        const fallbackDiv = document.getElementById('fallback-defaults');
+        const defaultTemp = fallbackDiv ? fallbackDiv.getAttribute('data-temp') : null;
+        const defaultHumid = fallbackDiv ? fallbackDiv.getAttribute('data-humid') : null;
 
-        // Safely cache current selection to prevent UI jumping on 60s auto-refresh
-        const currentTemp = tempSelect.value || sessionStorage.getItem("thermostat_temp_selection");
-        const currentHumid = humidSelect.value || sessionStorage.getItem("thermostat_humid_selection");
+        let targetTemp = tempSelect.value || sessionStorage.getItem("thermostat_temp_selection") || defaultTemp;
+        let targetHumid = humidSelect.value || sessionStorage.getItem("thermostat_humid_selection") || defaultHumid;
 
         tempSelect.innerHTML = '';
         humidSelect.innerHTML = '';
@@ -234,12 +237,45 @@
             humidSelect.innerHTML += `<option value="${band}">${band}</option>`;
         });
 
-        // Restore active values so the user does not lose their place
-        if (currentTemp && tempSet.has(currentTemp)) {
-            tempSelect.value = currentTemp;
+        if (targetTemp && tempSet.has(targetTemp)) {
+            tempSelect.value = targetTemp;
+            sessionStorage.setItem("thermostat_temp_selection", targetTemp);
+        } else if (tempSelect.options.length > 0) {
+            sessionStorage.setItem("thermostat_temp_selection", tempSelect.options[0].value);
         }
-        if (currentHumid && humidSet.has(currentHumid)) {
-            humidSelect.value = currentHumid;
+
+        if (targetHumid && humidSet.has(targetHumid)) {
+            humidSelect.value = targetHumid;
+            sessionStorage.setItem("thermostat_humid_selection", targetHumid);
+        } else if (humidSelect.options.length > 0) {
+            sessionStorage.setItem("thermostat_humid_selection", humidSelect.options[0].value);
+        }
+    }
+
+    function jumpToLastGraded() {
+        const fallbackDiv = document.getElementById('fallback-defaults');
+        const defaultTemp = fallbackDiv ? fallbackDiv.getAttribute('data-temp') : null;
+        const defaultHumid = fallbackDiv ? fallbackDiv.getAttribute('data-humid') : null;
+        
+        const tempSelect = document.getElementById('temp-filter');
+        const humidSelect = document.getElementById('humid-filter');
+
+        let uiChanged = false;
+
+        if (defaultTemp && Array.from(tempSelect.options).some(opt => opt.value === defaultTemp)) {
+            tempSelect.value = defaultTemp;
+            sessionStorage.setItem("thermostat_temp_selection", defaultTemp);
+            uiChanged = true;
+        }
+
+        if (defaultHumid && Array.from(humidSelect.options).some(opt => opt.value === defaultHumid)) {
+            humidSelect.value = defaultHumid;
+            sessionStorage.setItem("thermostat_humid_selection", defaultHumid);
+            uiChanged = true;
+        }
+
+        if (uiChanged) {
+            renderFilteredMatrix();
         }
     }
 
@@ -471,6 +507,11 @@
                         <option value="false">Standard Rate</option>
                         <option value="true">🔥 Peak Pricing</option>
                     </select>
+                </div>
+                <div class="filter-group" style="justify-content: flex-end;">
+                    <button onclick="jumpToLastGraded()" style="margin-top: auto; padding: 8px 12px; font-size: 0.85em; background-color: var(--border); border: 1px solid var(--accent); color: var(--accent);">
+                        🎯 Jump to Last
+                    </button>
                 </div>
             </div>
 
