@@ -204,12 +204,10 @@
         const tempSet = new Set();
         const humidSet = new Set();
 
-        // Define strict Regex patterns based on your exact band rules
         const validTempRegex = /^(<75|\d{2,3}-\d{2,3}|110\+) \[Threat: (<95|95-99|100-104|105\+|None)\]$/;
         const validHumidRegex = /^(<5%|\d{1,2}-\d{1,2}%|60%\+)$/;
 
         globalQData.forEach(row => {
-            // Only add the band if it perfectly matches the Regex pattern
             if (row.temp_band && validTempRegex.test(row.temp_band)) {
                 tempSet.add(row.temp_band);
             }
@@ -221,16 +219,65 @@
         const tempSelect = document.getElementById('temp-filter');
         const humidSelect = document.getElementById('humid-filter');
 
+        // Safely cache current selection to prevent UI jumping on 60s auto-refresh
+        const currentTemp = tempSelect.value || sessionStorage.getItem("thermostat_temp_selection");
+        const currentHumid = humidSelect.value || sessionStorage.getItem("thermostat_humid_selection");
+
         tempSelect.innerHTML = '';
         humidSelect.innerHTML = '';
 
-        // Sort and populate the dropdowns safely
         Array.from(tempSet).sort().forEach(band => {
             tempSelect.innerHTML += `<option value="${band}">${band}</option>`;
         });
 
         Array.from(humidSet).sort().forEach(band => {
             humidSelect.innerHTML += `<option value="${band}">${band}</option>`;
+        });
+
+        // Restore active values so the user does not lose their place
+        if (currentTemp && tempSet.has(currentTemp)) {
+            tempSelect.value = currentTemp;
+        }
+        if (currentHumid && humidSet.has(currentHumid)) {
+            humidSelect.value = currentHumid;
+        }
+    }
+
+    function updateDropdownStyles() {
+        const tempSelect = document.getElementById('temp-filter');
+        const humidSelect = document.getElementById('humid-filter');
+        const peakSelect = document.getElementById('peak-filter');
+
+        if (!tempSelect || !humidSelect || !peakSelect) {
+            return;
+        }
+
+        const selectedTemp = tempSelect.value;
+        const selectedHumid = humidSelect.value;
+        const selectedPeakStr = peakSelect.value;
+
+        // Gray out Temp options that lack data for the current humidity
+        Array.from(tempSelect.options).forEach(option => {
+            const hasData = globalQData.some(row => {
+                const isRowPeak = (row.is_peak_pricing == 1 ||
+                                   row.is_peak_pricing === true) ? "true" : "false";
+                return String(row.temp_band) === String(option.value) &&
+                       String(row.humidity_band) === String(selectedHumid) &&
+                       isRowPeak === selectedPeakStr;
+            });
+            option.style.color = hasData ? '#e2e8f0' : '#475569';
+        });
+
+        // Gray out Humid options that lack data for the current temperature
+        Array.from(humidSelect.options).forEach(option => {
+            const hasData = globalQData.some(row => {
+                const isRowPeak = (row.is_peak_pricing == 1 ||
+                                   row.is_peak_pricing === true) ? "true" : "false";
+                return String(row.temp_band) === String(selectedTemp) &&
+                       String(row.humidity_band) === String(option.value) &&
+                       isRowPeak === selectedPeakStr;
+            });
+            option.style.color = hasData ? '#e2e8f0' : '#475569';
         });
     }
 
@@ -254,6 +301,9 @@
                 String(row.humidity_band) === String(selectedHumid) && 
                 isRowPeak === selectedPeakStr;
         });
+
+        // Update the dropdown colors dynamically based on available data
+        updateDropdownStyles();
 
         // If no rows match the active weather filters, hide the card section
         if (filteredData.length === 0) {
