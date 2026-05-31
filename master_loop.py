@@ -428,6 +428,12 @@ async def master_clock():
                                 "🧠 Stopwatch Recovered: Target was previously reached at "
                                 f"{state.APP_STATE['target_reached_time'].strftime('%H:%M:%S')}"
                             )
+                        stored_overrides = database.get_session_state("current_overrides")
+                        if stored_overrides:
+                            state.APP_STATE["user_override_count"] = int(stored_overrides)
+                        stored_is_manual = database.get_session_state("is_manual_override")
+                        if stored_is_manual:
+                            state.APP_STATE["is_manual_override"] = stored_is_manual == "True"
 
                         # Restore the dashboard pointer so it survives a container restart
                         state.APP_STATE["last_written_temp"] = database.get_session_state(
@@ -693,6 +699,10 @@ async def master_clock():
                             print("⚠️ Temperature exceeded target. Resetting tracking clock.")
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
+                if current_overrides:
+                    database.save_session_state("current_overrides", "0")
+                if state.APP_STATE.get("is_manual_override", False):
+                    database.save_session_state("is_manual_override", "False")
                 is_peak = current_block == "Peak Hours"
                 had_venting = state.APP_STATE.get("block_had_aq_venting", False)
 

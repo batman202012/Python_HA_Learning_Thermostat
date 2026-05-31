@@ -101,26 +101,26 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Serves the main frontend dashboard."""
-    
+
     # 1. Try to pull from live state first
     default_temp = state.APP_STATE.get("last_written_temp")
     default_humid = state.APP_STATE.get("last_written_humid")
 
-    # 2. If state is empty (e.g., on a fresh restart), pull a known-good row from the DB
+    # 2. If state is empty (e.g., on a fresh restart), pull the LAST written block from memory
     if not default_temp or not default_humid:
         try:
             conn = sqlite3.connect(config.DB_PATH)
             cursor = conn.cursor()
-            # Grab the single most successful state the AI has ever recorded
+            # Grab the most recent state added to the AI's Q-Table memory
             cursor.execute('''
                 SELECT temp_band, humidity_band 
                 FROM q_table 
-                ORDER BY q_score DESC 
+                ORDER BY id DESC 
                 LIMIT 1
             ''')
             row = cursor.fetchone()
             conn.close()
-            
+
             if row:
                 default_temp = row[0]
                 default_humid = row[1]
@@ -137,7 +137,7 @@ async def dashboard(request: Request):
         request=request,
         name="index.html",
         context={
-            "request": request,  # Required by FastAPI templates
+            "request": request,  
             "schedule": [],
             "default_temp": default_temp,
             "default_humid": default_humid,
