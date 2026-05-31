@@ -57,7 +57,7 @@ def get_state_bands(temp, humidity, peak_temp=None):
         for i, val in enumerate(h_list):
             if humidity < val:
                 h_lower_bound = h_list[i-1] if i > 0 else 0
-                h_band = f"{h_lower_bound}-{val}"
+                h_band = f"{h_lower_bound}-{val}%"
                 break
 
     # Weather Threat Assessment
