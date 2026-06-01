@@ -72,23 +72,23 @@ def calculate_seed_score(
         elif action == "Eco Mode +2°F":
             score -= 10.0
 
-    # 3. Base Temperature Gradient (Fixed Bottom-Tier Collapses)
+    # 3. Base Temperature Gradient
     if t_idx >= 4:
         if action == "Pre-cool 4°F":
             score += 4.0
         elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
             score += 2.0
         elif action == "Eco Mode +2°F":
-            score -= 2.0  # Prevent Hot Weather Collapse vs Normal (0.0)
+            score -= 2.0
     elif t_idx <= 1:
         if action == "Eco Mode +2°F":
             score += 4.0
         elif action == "Normal":
             score += 2.0
         elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
-            score -= 2.0  # Prevent Cold Weather Collapse vs 4-degree
+            score -= 2.0
         elif action == "Pre-cool 4°F":
-            score -= 4.0  # Prevent Cold Weather Collapse vs 2-degree
+            score -= 4.0
 
     if "Swamp Cooler" in hardware:
         if h_idx >= 6:
@@ -105,7 +105,7 @@ def calculate_seed_score(
             elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
                 score += 1.5
             elif action == "Eco Mode +2°F":
-                score -= 1.5  # Prevent Dry Air Collapse vs Normal (0.0)
+                score -= 1.5
 
     if "Minisplit" in hardware:
         if is_peak:
@@ -129,14 +129,14 @@ def calculate_seed_score(
                 elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
                     score -= 2.5
 
-    # 4. Biome Gradients (Fixed Unreachable Code)
+    # 4. Biome Gradients
     if biome == "Desert":
         if action == "Pre-cool 4°F":
             score += 4.0
         elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
-            score += 2.0  # Un-trapped from `is_day`, will now trigger at night
+            score += 2.0
         elif action == "Eco Mode +2°F":
-            score -= 2.0  # Prevent Desert Collapse vs Normal (0.0)
+            score -= 2.0
 
     elif biome == "Tropical":
         if action == "Eco Mode +2°F":
@@ -153,8 +153,7 @@ def calculate_seed_score(
 
 def generate_states():
     """Yields all possible combinations of states."""
-
-    # Flatten the deeply nested loops into a single iterable product
+    
     day_combinations = itertools.product(
         DAY_BLOCKS,
         enumerate(TEMP_BANDS),
@@ -175,7 +174,7 @@ def generate_states():
         combined_t = f"{t_band} [{tr_band}]"
         yield (
             block, combined_t, h_band, is_peak, action,
-            t_idx, tr_idx, h_idx, True
+            t_idx, tr_idx, h_idx
         )
 
     night_combinations = itertools.product(
@@ -198,7 +197,7 @@ def generate_states():
         combined_t = f"{t_band} [{tr_band}]"
         yield (
             block, combined_t, h_band, is_peak, action,
-            t_idx, tr_idx, h_idx, False
+            t_idx, tr_idx, h_idx
         )
 
 
@@ -271,7 +270,6 @@ def run_seeder():
                 skipped_count += 1
 
         except sqlite3.Error as e:
-            # Broadened catch to generic DB errors since integrity skips are handled natively now
             print(f"Database error: {e}")
             skipped_count += 1
 
