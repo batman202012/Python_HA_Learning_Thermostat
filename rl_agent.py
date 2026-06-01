@@ -98,7 +98,7 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT action_taken, q_score FROM q_table
+        SELECT action_taken, q_score, visits FROM q_table
         WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ?
     ''', (time_block, temp_band, humidity_band, is_peak_pricing))
     results = cursor.fetchall()
