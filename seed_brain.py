@@ -153,7 +153,7 @@ def calculate_seed_score(
 
 def generate_states():
     """Yields all possible combinations of states."""
-    
+
     day_combinations = itertools.product(
         DAY_BLOCKS,
         enumerate(TEMP_BANDS),

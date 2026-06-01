@@ -720,7 +720,7 @@ function populateDropdowns() {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${date}</td>
-                            <td>${row.actual_temp}°F / ${row.actual_humidity}%</td>
+                            <td>${row.actual_temp}°F @${row.target_temp}°F / ${row.actual_humidity}%</td>
                             <td>${row.action_taken}</td>
                             <td>${row.user_overrides}</td>
                             <td class="${scoreClass}">${row.reward_granted !== null ? row.reward_granted.toFixed(1) : 'N/A'}</td>
