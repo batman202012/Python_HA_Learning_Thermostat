@@ -283,6 +283,14 @@ async def master_clock():
                 voc = aq_data["voc"]
                 nox = aq_data["nox"]
                 co2 = aq_data["co2"]
+                outside_temp = await ha_api.get_sensor_state(config.OUTSIDE_TEMP_SENSOR)
+                if outside_temp is not None:
+                    if outside_temp > 90:
+                        dont_vent = True
+                    else:
+                        dont_vent = False
+                else:
+                    dont_vent = False
 
                 is_venting = state.APP_STATE.get("is_currently_venting", False)
 
@@ -323,7 +331,7 @@ async def master_clock():
                 all_clean = voc_clean and nox_clean and co2_clean
 
                 if not is_venting:
-                    if any_triggered:
+                    if dont_vent is False and any_triggered:
                         reason = []
                         if voc_triggered:
                             reason.append(f"VOC Index: {voc}")
