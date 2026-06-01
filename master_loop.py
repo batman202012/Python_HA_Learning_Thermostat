@@ -283,14 +283,7 @@ async def master_clock():
                 voc = aq_data["voc"]
                 nox = aq_data["nox"]
                 co2 = aq_data["co2"]
-                outside_temp = await ha_api.get_sensor_state(config.OUTSIDE_TEMP_SENSOR)
-                if outside_temp is not None:
-                    if outside_temp > 90:
-                        dont_vent = True
-                    else:
-                        dont_vent = False
-                else:
-                    dont_vent = False
+                f_temp = await ha_api.get_sensor_state(config.OUTSIDE_TEMP_SENSOR)
 
                 is_venting = state.APP_STATE.get("is_currently_venting", False)
 
@@ -331,24 +324,36 @@ async def master_clock():
                 all_clean = voc_clean and nox_clean and co2_clean
 
                 if not is_venting:
-                    if dont_vent is False and any_triggered:
-                        reason = []
-                        if voc_triggered:
-                            reason.append(f"VOC Index: {voc}")
-                        if nox_triggered:
-                            reason.append(f"NOx Index: {nox}")
-                        if co2_triggered:
-                            reason.append(f"CO2 PPM: {co2}")
+                    if any_triggered:
+                        # THE KILL-SWITCH: Check outdoor temp before starting
+                        if f_temp >= config.AQ_MAX_OUTDOOR_TEMP:
+                            print(f"🔥 AQ Alert ignored: Outdoor temp ({f_temp}°F) exceeds "
+                            f"the {config.AQ_MAX_OUTDOOR_TEMP}°F safety limit.")
+                        else:
+                            reason = []
+                            if voc_triggered:
+                                reason.append(f"VOC Index: {voc}")
+                            if nox_triggered:
+                                reason.append(f"NOx Index: {nox}")
+                            if co2_triggered:
+                                reason.append(f"CO2 PPM: {co2}")
 
-                        msg = ", ".join(reason)
-                        print(f"⚠️ SENS55 AQ Alert! Spikes: [{msg}]. Venting.")
-                        await ha_api.set_fan(True)
-                        state.APP_STATE["is_currently_venting"] = True
-                        state.APP_STATE["block_had_aq_venting"] = True
+                            msg = ", ".join(reason)
+                            print(f"⚠️ SENS55 AQ Alert! Spikes: [{msg}]. Venting.")
+                            await ha_api.set_fan(True)
+                            state.APP_STATE["is_currently_venting"] = True
+                            state.APP_STATE["block_had_aq_venting"] = True
 
                 elif is_venting:
-                    if all_clean:
-                        print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
+                    # THE ABORT RAIL: Stop venting if the air is clean OR if it just got too hot outside
+                    if all_clean or f_temp >= config.AQ_MAX_OUTDOOR_TEMP:
+                        if f_temp >= config.AQ_MAX_OUTDOOR_TEMP and not all_clean:
+                            print(f"🔥 Aborting vent: Outdoor temp"
+                            f"hit {f_temp}°F!"
+                            f" Closing fan to protect thermals.")
+                        else:
+                            print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
+                        
                         await ha_api.set_fan(False)
                         state.APP_STATE["is_currently_venting"] = False
 
