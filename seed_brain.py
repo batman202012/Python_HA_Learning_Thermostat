@@ -45,8 +45,7 @@ def calculate_seed_score(
     threat_idx: int,
     h_idx: int,
     is_peak: bool,
-    action: str,
-    is_day: bool
+    action: str
 ) -> float:
     """Generates a baseline Q-score using heuristics for the specific state."""
     score = 0.0
