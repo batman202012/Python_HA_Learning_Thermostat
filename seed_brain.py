@@ -251,7 +251,7 @@ def run_seeder():
     print("\nCalculating and inserting permutations... please wait.")
 
     for state_data in generate_states():
-        block, c_temp, h_band, is_peak, action, t_idx, tr_idx, h_idx, = state_data
+        block, c_temp, h_band, is_peak, action, t_idx, tr_idx, h_idx = state_data
 
         q_score = calculate_seed_score(
             biome, hardware, t_idx, tr_idx, h_idx, is_peak, action
