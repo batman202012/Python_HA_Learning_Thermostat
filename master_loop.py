@@ -34,9 +34,10 @@ def sync_ha_to_schedule(new_temp: float):
     conn.commit()
     conn.close()
 
-    # CRITICAL: Update the live memory so the 5-minute loop doesn't overwrite this!
     state.APP_STATE["locked_target"] = new_temp
-    print(f"🔄 Memory Synced: AI will now maintain {new_temp}°F for the rest of this block.")
+    state.APP_STATE["locked_action"] = "Manual/Baseline"
+
+    print(f"  Memory Synced: AI will now maintain {new_temp} F for the rest of this block.")
 
 async def handle_thermostat_change(state_data):
     """Parses HA state changes and strictly identifies manual overrides."""
@@ -63,44 +64,32 @@ async def handle_thermostat_change(state_data):
         state.APP_STATE["expected_target_temp"] = new_temp
         current_ai_action = state.APP_STATE.get("locked_action")
         state.APP_STATE["user_override_count"] += 1
-        # --- 1. THE Q-TABLE PENALTY ---
-        # Make sure we don't punish an empty state or a state that is already manual
-        if state.APP_STATE.get("block_had_aq_venting", False):
-            live_penalty = -2.0
-            print(
-                f"🍃 Forgiveness Active: Scaling down penalty on "
-                f"'{current_ai_action}' due to active AQ venting."
-            )
-        else:
-            live_penalty = -20.0
-            print(
-                f"💥 WRIST SLAP: Applying a -20.0 penalty to AI "
-                f"strategy '{current_ai_action}'."
-            )
 
-        # Retrieve the environment state at the exact moment of failure
-        # (Adjust these variable fetches to match how your script tracks them)
-        time_block = state.APP_STATE.get("active_block", "Mid-Day")
-        if time_block == "Peak Hours":
-            is_peak = 1
-        else:
-            is_peak = 0
-        f_temp = state.APP_STATE.get("last_f_temp", 75.0)
-        f_humid = state.APP_STATE.get("last_f_humid", 20.0)
+        # Add a check to ensure we only penalize actual AI strategies
+        if current_ai_action != "Manual/Baseline":
+            if state.APP_STATE.get("block_had_aq_venting", False):
+                live_penalty = -2.0
+                print(f"  Forgiveness Active: Scaling down penalty on '{current_ai_action}' due to active AQ venting.")
+            else:
+                live_penalty = -20.0
+                print(f"  WRIST SLAP: Applying a -20.0 penalty to AI strategy '{current_ai_action}'.")
+            
+            time_block = state.APP_STATE.get("active_block", "Mid-Day")
+            is_peak = 1 if time_block == "Peak Hours" else 0
+            f_temp = state.APP_STATE.get("last_f_temp", 75.0)
+            f_humid = state.APP_STATE.get("last_f_humid", 20.0)
+            peak_temp = state.APP_STATE.get("forecast_max_temp", None)
+            temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
 
-        # Fetch the peak temp from memory to accurately penalize the exact state
-        peak_temp = state.APP_STATE.get("forecast_max_temp", None)
-        temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
-
-        # Deliver the instant Bellman update
-        database.update_q_score(
-                time_block,
-                temp_band,
-                humid_band,
-                is_peak,
-                current_ai_action,
-                live_penalty
-            )
+            # Deliver the instant Bellman update
+            database.update_q_score(
+                    time_block,
+                    temp_band,
+                    humid_band,
+                    is_peak,
+                    current_ai_action,
+                    live_penalty
+                )
 
         # 3. Sync to DB and Memory
         sync_ha_to_schedule(new_temp)
@@ -353,7 +342,7 @@ async def master_clock():
                             f" Closing fan to protect thermals.")
                         else:
                             print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
-                        
+
                         await ha_api.set_fan(False)
                         state.APP_STATE["is_currently_venting"] = False
 
