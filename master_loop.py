@@ -73,7 +73,7 @@ async def handle_thermostat_change(state_data):
             else:
                 live_penalty = -20.0
                 print(f"  WRIST SLAP: Applying a -20.0 penalty to AI strategy '{current_ai_action}'.")
-            
+
             time_block = state.APP_STATE.get("active_block", "Mid-Day")
             is_peak = 1 if time_block == "Peak Hours" else 0
             f_temp = state.APP_STATE.get("last_f_temp", 75.0)
@@ -489,32 +489,32 @@ async def master_clock():
                         state.APP_STATE["pending_grade"] = None
                         state.clear_waiting_room()
 
-                        is_override = state.APP_STATE.get("is_manual_override")
-                        had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
-                        bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
+                    is_override = state.APP_STATE.get("is_manual_override")
+                    had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
+                    bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
 
-                        # Evaluate intervention parameters and protect waiting room during AQ events
-                        if is_override and not bypass_wipe:
-                            print("🛑 Human intervened. AI gets no future credit. Wiping room.")
-                            state.APP_STATE["pending_grade"] = None
-                            state.clear_waiting_room()
-                            state.APP_STATE["is_manual_override"] = False
-                        else:
-                            if is_override and bypass_wipe:
-                                print("🍃 AQ Venting active. Preserving waiting room credit.")
+                    # Evaluate intervention parameters and protect waiting room during AQ events
+                    if is_override and not bypass_wipe:
+                        print("🛑 Human intervened. AI gets no future credit. Wiping room.")
+                        state.APP_STATE["pending_grade"] = None
+                        state.clear_waiting_room()
+                        state.APP_STATE["is_manual_override"] = False
+                    else:
+                        if is_override and bypass_wipe:
+                            print("🍃 AQ Venting active. Preserving waiting room credit.")
 
-                            print(f"⏳ Placing '{finished_block}' into the JSON waiting room.")
-                            pending_data = {
-                                "block": finished_block,
-                                "temp": finished_temp_band,
-                                "humid": finished_humid_band,
-                                "peak": is_peak,
-                                "action": finished_action,
-                                "immediate_reward": current_immediate_reward
-                            }
-                            state.APP_STATE["pending_grade"] = pending_data
-                            state.APP_STATE["is_manual_override"] = False
-                            state.save_waiting_room(pending_data)
+                        print(f"⏳ Placing '{finished_block}' into the JSON waiting room.")
+                        pending_data = {
+                            "block": finished_block,
+                            "temp": finished_temp_band,
+                            "humid": finished_humid_band,
+                            "peak": is_peak,
+                            "action": finished_action,
+                            "immediate_reward": current_immediate_reward
+                        }
+                        state.APP_STATE["pending_grade"] = pending_data
+                        state.APP_STATE["is_manual_override"] = False
+                        state.save_waiting_room(pending_data)
 
                 # 3. Apply "Clean Slate" WIPES (Only if starting fresh!)
                 if (is_new_block and not is_startup) or (is_startup and not is_recovery_successful):
