@@ -6,18 +6,6 @@ Loads .env variables and holds all global constants and paths.
 import os
 from dotenv import load_dotenv
 
-# Load the hidden variables from the .env file
-load_dotenv()
-
-# --- DIRECTORIES & PATHS ---
-"""
-config.py
-Loads .env variables and holds all global constants and paths.
-"""
-
-import os
-from dotenv import load_dotenv
-
 load_dotenv()
 
 # --- DIRECTORIES & PATHS ---
@@ -60,6 +48,8 @@ SAFETY_MAX = float(os.getenv("SAFETY_MAX", "78.0"))
 ENABLE_AQ_ENV = os.getenv("ENABLE_AQ_FEATURE", "False")
 ENABLE_AQ_FEATURE = ENABLE_AQ_ENV.lower() == "true"
 FAN_ENTITY_ID = os.getenv("FAN_ENTITY_ID")
+# Temperature Safety Limit for Venting
+AQ_MAX_OUTDOOR_TEMP = float(os.getenv("AQ_MAX_OUTDOOR_TEMP", "90.0"))
 
 # VOC Configuration
 AQ_VOC_SENSOR = os.getenv("AQ_VOC_SENSOR")

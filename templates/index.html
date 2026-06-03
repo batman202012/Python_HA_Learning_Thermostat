@@ -6,157 +6,6 @@
     <title>Thermostat Control Node</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
-    <script>
-    let globalQData = [];
-
-    async function loadQData() {
-        try {
-            const response = await fetch('/api/q_table');
-            const result = await response.json();
-            globalQData = result.data;
-            
-            populateDropdowns();
-            renderFilteredMatrix(); // Render the initial view
-        } catch (error) {
-            console.error("Error fetching Q-Table:", error);
-        }
-    }
-
-    function populateDropdowns() {
-        const tempSet = new Set();
-        const humidSet = new Set();
-        
-        globalQData.forEach(row => {
-            tempSet.add(row.temp_band);
-            humidSet.add(row.humidity_band);
-        });
-
-        const tempSelect = document.getElementById('temp-filter');
-        const humidSelect = document.getElementById('humid-filter');
-
-        tempSelect.innerHTML = '';
-        humidSelect.innerHTML = '';
-
-        // Sort and populate
-        Array.from(tempSet).sort().forEach(band => {
-            tempSelect.innerHTML += `<option value="${band}">${band}</option>`;
-        });
-        
-        Array.from(humidSet).sort().forEach(band => {
-            tempSelect.innerHTML += `<option value="${band}">${band}</option>`;
-        });
-    }
-
-    function renderFilteredMatrix() {
-        const container = document.getElementById('q-matrix-container');
-        const selectedTemp = document.getElementById('temp-filter').value;
-        const selectedHumid = document.getElementById('humid-filter').value;
-        const selectedPeakStr = document.getElementById('peak-filter').value; // "true" or "false"
-
-        // Bulletproof Filter
-        const filteredData = globalQData.filter(row => {
-            // 1. Force the database value (1/0 or true/false) into a string
-            const isRowPeak = (row.is_peak_pricing == 1 || row.is_peak_pricing === true) ? "true" : "false";
-            
-            // 2. Safely compare everything as strings to avoid hidden spacing or type issues
-            return String(row.temp_band) === String(selectedTemp) && 
-                String(row.humidity_band) === String(selectedHumid) && 
-                isRowPeak === selectedPeakStr;
-        });
-
-        if (filteredData.length === 0) {
-            container.innerHTML = `<div class="card"><p class="text-muted">No Q-Table data available for this weather state.</p></div>`;
-            return;
-        }
-
-        const timeOrder = [
-            "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
-            "Early Afternoon", "Late Afternoon", "Peak Hours", "Evening", "Late Night"
-        ];
-
-        const actionData = {};
-        const actionsSet = new Set();
-
-        filteredData.forEach(row => {
-            if (!actionData[row.action_taken]) actionData[row.action_taken] = {};
-            actionData[row.action_taken][row.time_block] = row.q_score;
-            actionsSet.add(row.action_taken);
-        });
-
-        const actions = Array.from(actionsSet).sort();
-
-        let html = `<div class="card">
-            <h2>Q-Matrix Overview</h2>
-            <div class="table-container">
-            <table class="q-table">
-            <thead>
-            <tr>
-            <th>Action / Time Block</th>
-            ${timeOrder.map(time => `<th>${time}</th>`).join('')}
-            </tr>
-            </thead>
-            <tbody>`;
-
-        actions.forEach(action => {
-            html += `<tr><td class="action-cell"><strong>${action}</strong></td>`;
-            
-            timeOrder.forEach(time => {
-                const score = actionData[action] ? actionData[action][time] : undefined;
-                let cellContent = '<span class="empty-cell">-</span>';
-                let cellStyle = ''; // We will inject the inline CSS here
-
-                if (score !== undefined) {
-                    cellContent = `<strong>${score.toFixed(1)}</strong>`;
-                    cellStyle = `style="background-color: ${getHeatmapColor(score)}; color: #ffffff; text-shadow: 0px 1px 2px rgba(0,0,0,0.5);"`;
-                }
-                html += `<td ${cellStyle}>${cellContent}</td>`;
-            });
-            
-            html += `</tr>`;
-        });
-
-        html += `</tbody></table></div></div>`;
-        container.innerHTML = html;
-    }
-
-    function getHeatmapColor(score) {
-        if (score > 0) {
-            // Green gradient for positive rewards (Scaling from 0 to 10+)
-            const intensity = Math.min(score / 10, 1);
-            return `rgba(82, 196, 26, ${0.1 + (intensity * 0.7)})`;
-        } else if (score < 0) {
-            // Red gradient for penalties (Scaling from 0 to -80)
-            const intensity = Math.min(Math.abs(score) / 80, 1);
-            return `rgba(255, 77, 79, ${0.1 + (intensity * 0.8)})`;
-        }
-        // Exactly 0.0
-        return 'rgba(255, 255, 255, 0.05)';
-    }
-
-    async function triggerRestart() {
-        if (!confirm("Are you sure you want to restart the AI Node?")) return;
-
-        const statusMsg = document.getElementById('statusMessage');
-        statusMsg.innerText = "Restarting... please wait.";
-        statusMsg.style.color = "var(--accent)";
-        statusMsg.style.display = "block";
-
-        try {
-            const response = await fetch('/api/restart', { method: 'POST' });
-            if (response.ok) {
-                // Wait 5 seconds for the service to come back up, then refresh
-                setTimeout(() => {
-                    window.location.reload();
-                }, 5000);
-            }
-        } catch (error) {
-            console.error("Restart trigger failed", error);
-        }
-    }
-
-    // Boot up
-    loadQData();
-    </script>
     <style>
         :root {
             --bg-color: #0f111a;
@@ -190,7 +39,9 @@
         }
 
         @media (max-width: 800px) {
-            .container { grid-template-columns: 1fr; }
+            .container {
+                grid-template-columns: 1fr;
+            }
         }
 
         .card {
@@ -201,34 +52,97 @@
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
         }
 
-        h1, h2, h3 { margin-top: 0; }
-        h1 { color: var(--accent); margin-bottom: 30px; text-align: center; width: 100%; }
-        h2 { font-size: 1.2rem; color: var(--text-muted); border-bottom: 1px solid var(--border); padding-bottom: 10px;}
+        h1, h2, h3 {
+            margin-top: 0;
+        }
 
-        /* Form Styles */
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-size: 0.9rem; color: var(--text-muted); }
+        h1 {
+            color: var(--accent);
+            margin-bottom: 30px;
+            text-align: center;
+            width: 100%;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
         input[type="number"], select {
-            width: 100%; padding: 10px; border-radius: 4px;
-            border: 1px solid var(--border); background-color: var(--bg-color);
-            color: var(--text-main); box-sizing: border-box;
+            width: 100%;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            box-sizing: border-box;
         }
-        button {
-            width: 100%; padding: 12px; border: none; border-radius: 4px;
-            background-color: var(--accent); color: #fff; font-weight: bold;
-            cursor: pointer; transition: background 0.2s;
-        }
-        button:hover { background-color: var(--accent-hover); }
 
-        /* Table Styles */
-        .table-container { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
-        th { color: var(--accent); font-weight: 600; background-color: rgba(0,0,0,0.2); }
-        tr:hover { background-color: rgba(255,255,255,0.02); }
-        
-        .score-positive { color: var(--success); font-weight: bold; }
-        .score-negative { color: var(--danger); font-weight: bold; }
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            background-color: var(--accent);
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: var(--accent-hover);
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            color: var(--accent);
+            font-weight: 600;
+            background-color: rgba(0,0,0,0.2);
+        }
+
+        tr:hover {
+            background-color: rgba(255,255,255,0.02);
+        }
+
+        .score-positive {
+            color: var(--success);
+            font-weight: bold;
+        }
+
+        .score-negative {
+            color: var(--danger);
+            font-weight: bold;
+        }
 
         .q-controls {
             display: flex;
@@ -269,6 +183,263 @@
             border-color: #4db8ff;
         }
     </style>
+    <script>
+    let globalQData = [];
+    let performanceChart = null;
+
+    async function loadQData() {
+        try {
+            const response = await fetch('/api/q_table');
+            const result = await response.json();
+            globalQData = result.data;
+
+            populateDropdowns();
+            renderFilteredMatrix();
+        } catch (error) {
+            console.error("Error fetching Q-Table:", error);
+        }
+    }
+
+function populateDropdowns() {
+        const tempSet = new Set();
+        const humidSet = new Set();
+
+        const validTempRegex = /^(<75|\d{2,3}-\d{2,3}|110\+) \[Threat: (<95|95-99|100-104|105\+|None)\]$/;
+        const validHumidRegex = /^(<5%|\d{1,2}-\d{1,2}%|60%\+)$/;
+
+        globalQData.forEach(row => {
+            if (row.temp_band && validTempRegex.test(row.temp_band)) {
+                tempSet.add(row.temp_band);
+            }
+            if (row.humidity_band && validHumidRegex.test(row.humidity_band)) {
+                humidSet.add(row.humidity_band);
+            }
+        });
+
+        const tempSelect = document.getElementById('temp-filter');
+        const humidSelect = document.getElementById('humid-filter');
+        
+        const fallbackDiv = document.getElementById('fallback-defaults');
+        const defaultTemp = fallbackDiv ? fallbackDiv.getAttribute('data-temp') : null;
+        const defaultHumid = fallbackDiv ? fallbackDiv.getAttribute('data-humid') : null;
+
+        let targetTemp = tempSelect.value || sessionStorage.getItem("thermostat_temp_selection") || defaultTemp;
+        let targetHumid = humidSelect.value || sessionStorage.getItem("thermostat_humid_selection") || defaultHumid;
+
+        tempSelect.innerHTML = '';
+        humidSelect.innerHTML = '';
+
+        Array.from(tempSet).sort().forEach(band => {
+            tempSelect.innerHTML += `<option value="${band}">${band}</option>`;
+        });
+
+        Array.from(humidSet).sort().forEach(band => {
+            humidSelect.innerHTML += `<option value="${band}">${band}</option>`;
+        });
+
+        if (targetTemp && tempSet.has(targetTemp)) {
+            tempSelect.value = targetTemp;
+            sessionStorage.setItem("thermostat_temp_selection", targetTemp);
+        } else if (tempSelect.options.length > 0) {
+            sessionStorage.setItem("thermostat_temp_selection", tempSelect.options[0].value);
+        }
+
+        if (targetHumid && humidSet.has(targetHumid)) {
+            humidSelect.value = targetHumid;
+            sessionStorage.setItem("thermostat_humid_selection", targetHumid);
+        } else if (humidSelect.options.length > 0) {
+            sessionStorage.setItem("thermostat_humid_selection", humidSelect.options[0].value);
+        }
+    }
+
+    function jumpToLastGraded() {
+        const fallbackDiv = document.getElementById('fallback-defaults');
+        const defaultTemp = fallbackDiv ? fallbackDiv.getAttribute('data-temp') : null;
+        const defaultHumid = fallbackDiv ? fallbackDiv.getAttribute('data-humid') : null;
+        
+        const tempSelect = document.getElementById('temp-filter');
+        const humidSelect = document.getElementById('humid-filter');
+
+        let uiChanged = false;
+
+        if (defaultTemp && Array.from(tempSelect.options).some(opt => opt.value === defaultTemp)) {
+            tempSelect.value = defaultTemp;
+            sessionStorage.setItem("thermostat_temp_selection", defaultTemp);
+            uiChanged = true;
+        } else if (defaultTemp) {
+            // Log a warning to the console if the backend variable fails to match the UI options
+            console.warn("Temperature band not found in options:", defaultTemp);
+        }
+
+        if (defaultHumid && Array.from(humidSelect.options).some(opt => opt.value === defaultHumid)) {
+            humidSelect.value = defaultHumid;
+            sessionStorage.setItem("thermostat_humid_selection", defaultHumid);
+            uiChanged = true;
+        } else if (defaultHumid) {
+        // Log a warning to the console if the backend variable fails to match the UI options
+        console.warn("Humidity band not found in options:", defaultHumid);
+    }
+
+        if (uiChanged) {
+            renderFilteredMatrix();
+        }
+    }
+
+    function updateDropdownStyles() {
+        const tempSelect = document.getElementById('temp-filter');
+        const humidSelect = document.getElementById('humid-filter');
+        const peakSelect = document.getElementById('peak-filter');
+
+        if (!tempSelect || !humidSelect || !peakSelect) {
+            return;
+        }
+
+        const selectedTemp = tempSelect.value;
+        const selectedHumid = humidSelect.value;
+        const selectedPeakStr = peakSelect.value;
+
+        // Gray out Temp options that lack data for the current humidity
+        Array.from(tempSelect.options).forEach(option => {
+            const hasData = globalQData.some(row => {
+                const isRowPeak = (row.is_peak_pricing == 1 ||
+                                   row.is_peak_pricing === true) ? "true" : "false";
+                return String(row.temp_band) === String(option.value) &&
+                       String(row.humidity_band) === String(selectedHumid) &&
+                       isRowPeak === selectedPeakStr;
+            });
+            option.style.color = hasData ? '#e2e8f0' : '#475569';
+        });
+
+        // Gray out Humid options that lack data for the current temperature
+        Array.from(humidSelect.options).forEach(option => {
+            const hasData = globalQData.some(row => {
+                const isRowPeak = (row.is_peak_pricing == 1 ||
+                                   row.is_peak_pricing === true) ? "true" : "false";
+                return String(row.temp_band) === String(selectedTemp) &&
+                       String(row.humidity_band) === String(option.value) &&
+                       isRowPeak === selectedPeakStr;
+            });
+            option.style.color = hasData ? '#e2e8f0' : '#475569';
+        });
+    }
+
+    function renderFilteredMatrix() {
+        const container = document.getElementById('q-matrix-container');
+        const tempSelect = document.getElementById('temp-filter');
+        const humidSelect = document.getElementById('humid-filter');
+        const selectedPeakStr = document.getElementById('peak-filter').value;
+
+        if (!container || !tempSelect || !humidSelect) {
+            return;
+        }
+
+        const selectedTemp = tempSelect.value;
+        const selectedHumid = humidSelect.value;
+
+        const filteredData = globalQData.filter(row => {
+            const isRowPeak = (row.is_peak_pricing == 1 || 
+                               row.is_peak_pricing === true) ? "true" : "false";
+            return String(row.temp_band) === String(selectedTemp) && 
+                String(row.humidity_band) === String(selectedHumid) && 
+                isRowPeak === selectedPeakStr;
+        });
+
+        // Update the dropdown colors dynamically based on available data
+        updateDropdownStyles();
+
+        // If no rows match the active weather filters, hide the card section
+        if (filteredData.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+
+        const activeTimeBlocks = [
+            "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
+            "Early Afternoon", "Late Afternoon", "Peak Hours", "Evening", 
+            "Late Night"
+        ];
+
+        const actionData = {};
+        const activeActionsSet = new Set();
+
+        filteredData.forEach(row => {
+            if (!actionData[row.action_taken]) {
+                actionData[row.action_taken] = {};
+            }
+            actionData[row.action_taken][row.time_block] = row.q_score;
+            activeActionsSet.add(row.action_taken);
+        });
+
+        const actions = Array.from(activeActionsSet).sort();
+
+        let html = `<div class="card">
+            <h2>Q-Matrix Overview</h2>
+            <div class="table-container">
+            <table class="q-table">
+            <thead>
+            <tr>
+            <th>Action / Time Block</th>
+            ${activeTimeBlocks.map(time => `<th>${time}</th>`).join('')}
+            </tr>
+            </thead>
+            <tbody>`;
+
+        actions.forEach(action => {
+            html += `<tr><td class="action-cell"><strong>${action}</strong></td>`;
+            
+            activeTimeBlocks.forEach(time => {
+                const score = actionData[action] ? 
+                    actionData[action][time] : undefined;
+                let cellContent = '<span class="empty-cell">-</span>';
+                let cellStyle = '';
+
+                if (score !== undefined) {
+                    cellContent = `<strong>${score.toFixed(1)}</strong>`;
+                    cellStyle = `style="background-color: ${getHeatmapColor(score)}; color: #ffffff; text-shadow: 0px 1px 2px rgba(0,0,0,0.5);"`;
+                }
+                html += `<td ${cellStyle}>${cellContent}</td>`;
+            });
+            
+            html += `</tr>`;
+        });
+
+        html += `</tbody></table></div></div>`;
+        container.innerHTML = html;
+    }
+
+    function getHeatmapColor(score) {
+        if (score > 0) {
+            const intensity = Math.min(score / 10, 1);
+            return `rgba(82, 196, 26, ${0.1 + (intensity * 0.7)})`;
+        } else if (score < 0) {
+            const intensity = Math.min(Math.abs(score) / 80, 1);
+            return `rgba(255, 77, 79, ${0.1 + (intensity * 0.8)})`;
+        }
+        return 'rgba(255, 255, 255, 0.05)';
+    }
+
+    async function triggerRestart() {
+        if (!confirm("Are you sure you want to restart the AI Node?")) {
+            return;
+        }
+
+        const statusMsg = document.getElementById('statusMessage');
+        statusMsg.innerText = "Restarting... please wait.";
+        statusMsg.style.color = "var(--accent)";
+        statusMsg.style.display = "block";
+
+        try {
+            const response = await fetch('/api/restart', { method: 'POST' });
+            if (response.ok) {
+                setTimeout(() => {
+                    window.location.reload();
+                }, 5000);
+            }
+        } catch (error) {
+            console.error("Restart trigger failed", error);
+        }
+    }
+    </script>
 </head>
 <body>
 
@@ -296,7 +467,9 @@
                         <option value="Late Night">Late Night (10pm-12am)</option>
                     </select>
                 </div>
-                <button onclick="updateSchedule()">Inject Configuration</button>
+                <div class="form-group">
+                    <button onclick="updateSchedule()">Inject Configuration</button>
+                </div>
                 <p id="statusMessage" style="margin-top: 15px; font-size: 0.85rem; color: var(--success); display: none;"></p>
             </div>
             <div class="card" style="margin-top: 20px;">
@@ -318,18 +491,23 @@
             <div class="q-controls">
                 <div class="filter-group">
                     <label>🌡️ Temperature Band:</label>
-                    <select id="temp-filter" onchange="renderFilteredMatrix()"></select>
+                    <select id="temp-filter"></select>
                 </div>
                 <div class="filter-group">
                     <label>💧 Humidity Band:</label>
-                    <select id="humid-filter" onchange="renderFilteredMatrix()"></select>
+                    <select id="humid-filter"></select>
                 </div>
                 <div class="filter-group">
                     <label>⚡ Pricing:</label>
-                    <select id="peak-filter" onchange="renderFilteredMatrix()">
+                    <select id="peak-filter">
                         <option value="false">Standard Rate</option>
                         <option value="true">🔥 Peak Pricing</option>
                     </select>
+                </div>
+                <div class="filter-group" style="justify-content: flex-end;">
+                    <button onclick="jumpToLastGraded()" style="margin-top: auto; padding: 8px 12px; font-size: 0.85em; background-color: var(--border); border: 1px solid var(--accent); color: var(--accent);">
+                        🎯 Jump to Last
+                    </button>
                 </div>
             </div>
 
@@ -357,24 +535,30 @@
         </div>
     </div>
 
+    <div id="fallback-defaults" 
+         data-temp="{{ default_temp }}" 
+         data-humid="{{ default_humid }}" 
+         style="display: none !important;">
+    </div>
+
     <script>
-        // Post a manual override to the Python backend
         async function updateSchedule() {
             const temp = document.getElementById('targetTemp').value;
             const block = document.getElementById('timeBlock').value;
             const statusMsg = document.getElementById('statusMessage');
 
             try {
-                // Pointing to the new FastAPI endpoint logic
                 const response = await fetch(`/api/schedule?time_block=${block}&target_temp=${temp}`, {
                     method: 'POST'
                 });
-                
+
                 if (response.ok) {
                     statusMsg.innerText = `Command sent: ${temp}°F for ${block} block.`;
                     statusMsg.style.color = "var(--success)";
                     statusMsg.style.display = "block";
-                    setTimeout(() => statusMsg.style.display = "none", 4000);
+                    setTimeout(() => {
+                        statusMsg.style.display = "none";
+                    }, 4000);
                 } else {
                     throw new Error("API rejected the command.");
                 }
@@ -384,8 +568,6 @@
                 statusMsg.style.display = "block";
             }
         }
-
-        let performanceChart = null;
 
         function updateChart(historyData) {
             const blockColors = {
@@ -402,55 +584,37 @@
 
             const ctx = document.getElementById('performanceChart').getContext('2d');
             const chartData = [...historyData].reverse();
-            
-            // 1. Force the labels into an array so Chart.js stacks them on two lines
+
             const newStackedLabels = chartData.map(row => {
                 const d = new Date(row.date_time);
                 const timeString = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                // This is what the user sees
                 return [row.time_block, timeString]; 
             });
 
-            // We create a "hidden" flattened version for the annotation logic to find the coordinates
-            const flattenedLabels = newStackedLabels.map(l => l.join(' '));
-
-            const actualTemps = chartData.map(row => row.actual_temp || 0);
+            const actualTemps = chartData.map(row => {
+                return row.actual_temp || 0;
+            });
             const targetTemps = chartData.map(row => {
-                if (row.target_temp !== null && row.target_temp !== undefined) return row.target_temp;
+                if (row.target_temp !== null && row.target_temp !== undefined) {
+                    return row.target_temp;
+                }
                 return row.actual_temp;
             });
 
-            // 2. Generate the background color boxes
-            function getBlockByHour(hour) {
-                if (hour >= 0 && hour < 5) return "Overnight";
-                if (hour >= 5 && hour < 8) return "Early Morning";
-                if (hour >= 8 && hour < 10) return "Late Morning";
-                if (hour >= 10 && hour < 12) return "Mid-Day";
-                if (hour >= 12 && hour < 14) return "Early Afternoon";
-                if (hour >= 14 && hour < 16) return "Late Afternoon";
-                if (hour >= 16 && hour < 19) return "Peak Hours";
-                if (hour >= 19 && hour < 22) return "Evening";
-                return "Late Night";
-            }
-
             function generateTimeBlockAnnotations(data) {
-                if (!data || data.length === 0) return {};
-
+                if (!data || data.length === 0) {
+                    return {};
+                }
                 const annotations = {};
                 let currentBlock = null;
                 let startIndex = 0;
 
-                // Get the actual list of labels being used by the chart
-                const chartLabels = performanceChart ? performanceChart.data.labels : [];
-
                 data.forEach((row, index) => {
                     const blockName = row.time_block;
-
                     if (blockName !== currentBlock) {
                         if (currentBlock !== null) {
                             annotations[`block_${index}`] = {
                                 type: 'box',
-                                // We use the numeric index as the coordinate
                                 xMin: startIndex - 0.5, 
                                 xMax: index - 0.5,
                                 backgroundColor: blockColors[currentBlock] || 'rgba(255,255,255,0.05)',
@@ -463,7 +627,6 @@
                     }
                 });
 
-                // Final block
                 if (currentBlock !== null) {
                     annotations['block_final'] = {
                         type: 'box',
@@ -479,9 +642,8 @@
 
             const blockAnnotations = generateTimeBlockAnnotations(historyData);
 
-            // 3. Update or Create the Chart
             if (performanceChart) {
-                performanceChart.data.labels = newStackedLabels; // Apply clean labels to existing chart
+                performanceChart.data.labels = newStackedLabels;
                 performanceChart.data.datasets[0].data = actualTemps;
                 performanceChart.data.datasets[1].data = targetTemps;
                 performanceChart.options.plugins.annotation.annotations = blockAnnotations;
@@ -490,7 +652,7 @@
                 performanceChart = new Chart(ctx, {
                     type: 'line',
                     data: {
-                        labels: newStackedLabels, // Apply clean labels to new chart
+                        labels: newStackedLabels,
                         datasets: [
                             {
                                 label: 'Actual Temp (°F)',
@@ -521,7 +683,7 @@
                         },
                         scales: {
                             x: {
-                                type: 'category', // Ensure this is set to category
+                                type: 'category',
                                 grid: { color: 'rgba(255, 255, 255, 0.1)' },
                                 ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true }
                             },
@@ -536,11 +698,12 @@
             }
         }
 
-        // Fetch and render the History Log
         async function fetchHistory() {
             try {
                 const response = await fetch('/api/history');
-                if (!response.ok) throw new Error("Network response was not ok");
+                if (!response.ok) {
+                    throw new Error("Network response was not ok");
+                }
                 const json = await response.json();
                 const tbody = document.getElementById('historyBody');
                 tbody.innerHTML = '';
@@ -553,11 +716,11 @@
                         const date = new Date(row.date_time).toLocaleString(undefined, {
                             month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'
                         });
-                        
+
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${date}</td>
-                            <td>${row.actual_temp}°F / ${row.actual_humidity}%</td>
+                            <td>${row.actual_temp}°F @${row.target_temp}°F / ${row.actual_humidity}%</td>
                             <td>${row.action_taken}</td>
                             <td>${row.user_overrides}</td>
                             <td class="${scoreClass}">${row.reward_granted !== null ? row.reward_granted.toFixed(1) : 'N/A'}</td>
@@ -566,30 +729,23 @@
                     });
                 }
 
-                // --- FIXED: This now runs every time history is fetched! ---
                 if (json.data) {
                     updateChart(json.data);
                 }
-
             } catch (error) {
                 console.error("Failed to load History", error);
                 document.getElementById('historyBody').innerHTML = '<tr><td colspan="5" style="color: var(--danger);">Error loading data. Check terminal.</td></tr>';
             }
         }
 
-        // Fetch the terminal logs
         async function fetchLogs() {
             try {
                 const response = await fetch('/api/logs');
                 const json = await response.json();
                 const viewer = document.getElementById('terminal-viewer');
-                
-                // Smart Scrolling: Only auto-scroll down if the user is already at the bottom.
-                // This prevents the window from jumping if you are scrolling up to read old logs!
                 const isScrolledToBottom = viewer.scrollHeight - viewer.clientHeight <= viewer.scrollTop + 10;
-                
+
                 viewer.textContent = json.logs || "System initialized. Awaiting data...";
-                
                 if (isScrolledToBottom) {
                     viewer.scrollTop = viewer.scrollHeight;
                 }
@@ -598,91 +754,38 @@
             }
         }
 
-        // Initialize dashboard
-        loadQData();
-        fetchHistory();
-        fetchLogs(); // Boot up logs
-
-        // Refresh Chart & Matrix every 60 seconds
-        setInterval(() => {
+        document.addEventListener("DOMContentLoaded", function() {
             loadQData();
             fetchHistory();
-        }, 60000);
+            fetchLogs();
 
-        // Refresh Terminal every 5 seconds for live feedback
-        setInterval(fetchLogs, 5000);
-    </script>
+            const tempSelect = document.getElementById('temp-filter');
+            const humidSelect = document.getElementById('humid-filter');
+            const peakSelect = document.getElementById('peak-filter');
 
-    <div id="fallback-defaults" 
-        data-temp="{{ default_temp }}" 
-        data-humid="{{ default_humid }}" 
-        style="display: none;">
-    </div>
-
-    <script>
-    document.addEventListener("DOMContentLoaded", function() {
-        // Target your exact element IDs (Verify these match your actual HTML element IDs)
-        const tempSelect = document.getElementById("temp_band") || document.querySelector("select[name='temp_band']");
-        const humidSelect = document.getElementById("humidity_band") || document.querySelector("select[name='humidity_band']");
-        const mainTable = document.querySelector("table"); 
-
-        // Retrieve embedded baseline configurations
-        const defaultsBridge = document.getElementById("fallback-defaults");
-        const defaultTempBand = defaultsBridge ? defaultsBridge.getAttribute("data-temp") : "<75";
-        const defaultHumidBand = defaultsBridge ? defaultsBridge.getAttribute("data-humid") : "20-25%";
-
-        // 1. FIX: Restore from cache or default to the state from 2 blocks ago
-        if (localStorage.getItem("thermostat_temp_selection")) {
-            tempSelect.value = localStorage.getItem("thermostat_temp_selection");
-        } else {
-            tempSelect.value = defaultTempBand;
-        }
-
-        if (localStorage.getItem("thermostat_humid_selection")) {
-            humidSelect.value = localStorage.getItem("thermostat_humid_selection");
-        } else {
-            humidSelect.value = defaultHumidBand;
-        }
-
-        // 2. Dynamic text-color shifter for empty/extreme bands
-        function evaluateTableColoration() {
-            if (!mainTable) return;
-            
-            const hasNoInfoSelected = (tempSelect.value === "100-105 [Threat:100-104]" || humidSelect.value === "10-15%");
-
-            if (hasNoInfoSelected) {
-                // Apply inline gray text color shift
-                mainTable.style.color = "#9ca3af"; 
-                
-                // Override explicit text-white style tags inside headers/cells if present
-                mainTable.querySelectorAll(".text-white, th, td").forEach(el => {
-                    el.classList.remove("text-white");
-                    el.style.color = "#9ca3af"; // Tailwind gray-400 hex profile
+            if (tempSelect && humidSelect && peakSelect) {
+                tempSelect.addEventListener("change", function() {
+                    sessionStorage.setItem("thermostat_temp_selection", this.value);
+                    renderFilteredMatrix();
                 });
-            } else {
-                // Revert to baseline configuration
-                mainTable.style.color = "";
-                mainTable.querySelectorAll("th, td").forEach(el => {
-                    el.style.color = "";
-                    el.classList.add("text-white");
+
+                humidSelect.addEventListener("change", function() {
+                    sessionStorage.setItem("thermostat_humid_selection", this.value);
+                    renderFilteredMatrix();
+                });
+
+                peakSelect.addEventListener("change", function() {
+                    renderFilteredMatrix();
                 });
             }
-        }
 
-        // 3. Set up event state listeners
-        tempSelect.addEventListener("change", function() {
-            localStorage.setItem("thermostat_temp_selection", this.value);
-            evaluateTableColoration();
+            setInterval(() => {
+                loadQData();
+                fetchHistory();
+            }, 60000);
+
+            setInterval(fetchLogs, 5000);
         });
-
-        humidSelect.addEventListener("change", function() {
-            localStorage.setItem("thermostat_humid_selection", this.value);
-            evaluateTableColoration();
-        });
-
-        // Run evaluations immediately upon drawing the initial elements
-        evaluateTableColoration();
-    });
     </script>
 </body>
 </html>

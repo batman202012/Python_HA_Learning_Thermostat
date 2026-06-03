@@ -40,9 +40,11 @@ def get_state_bands(temp, humidity, peak_temp=None):
     if temp < 75:
         t_band = "<75"
     else:
-        for val in t_list:
+        for i, val in enumerate(t_list):
             if temp < val:
-                t_band = f"<{val}"
+                # Use the index 'i' to reference the previous boundary
+                t_lower_bound = t_list[i-1] if i > 0 else 0
+                t_band = f"{t_lower_bound}-{val}"
                 break
 
     # Humidity Bounds
@@ -52,14 +54,10 @@ def get_state_bands(temp, humidity, peak_temp=None):
     if humidity < 5:
         h_band = "<5%"
     else:
-        for val in h_list:
+        for i, val in enumerate(h_list):
             if humidity < val:
-                if val == 45:
-                    h_band = "30-45%"
-                elif val == 60:
-                    h_band = "45-60%"
-                else:
-                    h_band = f"<{val}%"
+                h_lower_bound = h_list[i-1] if i > 0 else 0
+                h_band = f"{h_lower_bound}-{val}%"
                 break
 
     # Weather Threat Assessment
@@ -100,7 +98,7 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT action_taken, q_score FROM q_table
+        SELECT action_taken, q_score, visits FROM q_table
         WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ?
     ''', (time_block, temp_band, humidity_band, is_peak_pricing))
     results = cursor.fetchall()

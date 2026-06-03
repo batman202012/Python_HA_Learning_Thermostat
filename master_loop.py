@@ -34,9 +34,10 @@ def sync_ha_to_schedule(new_temp: float):
     conn.commit()
     conn.close()
 
-    # CRITICAL: Update the live memory so the 5-minute loop doesn't overwrite this!
     state.APP_STATE["locked_target"] = new_temp
-    print(f"🔄 Memory Synced: AI will now maintain {new_temp}°F for the rest of this block.")
+    state.APP_STATE["locked_action"] = "Manual/Baseline"
+
+    print(f"  Memory Synced: AI will now maintain {new_temp} F for the rest of this block.")
 
 async def handle_thermostat_change(state_data):
     """Parses HA state changes and strictly identifies manual overrides."""
@@ -63,44 +64,32 @@ async def handle_thermostat_change(state_data):
         state.APP_STATE["expected_target_temp"] = new_temp
         current_ai_action = state.APP_STATE.get("locked_action")
         state.APP_STATE["user_override_count"] += 1
-        # --- 1. THE Q-TABLE PENALTY ---
-        # Make sure we don't punish an empty state or a state that is already manual
-        if state.APP_STATE.get("block_had_aq_venting", False):
-            live_penalty = -2.0
-            print(
-                f"🍃 Forgiveness Active: Scaling down penalty on "
-                f"'{current_ai_action}' due to active AQ venting."
-            )
-        else:
-            live_penalty = -20.0
-            print(
-                f"💥 WRIST SLAP: Applying a -20.0 penalty to AI "
-                f"strategy '{current_ai_action}'."
-            )
 
-        # Retrieve the environment state at the exact moment of failure
-        # (Adjust these variable fetches to match how your script tracks them)
-        time_block = state.APP_STATE.get("active_block", "Mid-Day")
-        if time_block == "Peak Hours":
-            is_peak = 1
-        else:
-            is_peak = 0
-        f_temp = state.APP_STATE.get("last_f_temp", 75.0)
-        f_humid = state.APP_STATE.get("last_f_humid", 20.0)
+        # Add a check to ensure we only penalize actual AI strategies
+        if current_ai_action != "Manual/Baseline":
+            if state.APP_STATE.get("block_had_aq_venting", False):
+                live_penalty = -2.0
+                print(f"  Forgiveness Active: Scaling down penalty on '{current_ai_action}' due to active AQ venting.")
+            else:
+                live_penalty = -20.0
+                print(f"  WRIST SLAP: Applying a -20.0 penalty to AI strategy '{current_ai_action}'.")
 
-        # Fetch the peak temp from memory to accurately penalize the exact state
-        peak_temp = state.APP_STATE.get("forecast_max_temp", None)
-        temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
+            time_block = state.APP_STATE.get("active_block", "Mid-Day")
+            is_peak = 1 if time_block == "Peak Hours" else 0
+            f_temp = state.APP_STATE.get("last_f_temp", 75.0)
+            f_humid = state.APP_STATE.get("last_f_humid", 20.0)
+            peak_temp = state.APP_STATE.get("forecast_max_temp", None)
+            temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
 
-        # Deliver the instant Bellman update
-        database.update_q_score(
-                time_block,
-                temp_band,
-                humid_band,
-                is_peak,
-                current_ai_action,
-                live_penalty
-            )
+            # Deliver the instant Bellman update
+            database.update_q_score(
+                    time_block,
+                    temp_band,
+                    humid_band,
+                    is_peak,
+                    current_ai_action,
+                    live_penalty
+                )
 
         # 3. Sync to DB and Memory
         sync_ha_to_schedule(new_temp)
@@ -283,6 +272,7 @@ async def master_clock():
                 voc = aq_data["voc"]
                 nox = aq_data["nox"]
                 co2 = aq_data["co2"]
+                f_temp = await ha_api.get_sensor_state(config.OUTSIDE_TEMP_SENSOR)
 
                 is_venting = state.APP_STATE.get("is_currently_venting", False)
 
@@ -324,23 +314,35 @@ async def master_clock():
 
                 if not is_venting:
                     if any_triggered:
-                        reason = []
-                        if voc_triggered:
-                            reason.append(f"VOC Index: {voc}")
-                        if nox_triggered:
-                            reason.append(f"NOx Index: {nox}")
-                        if co2_triggered:
-                            reason.append(f"CO2 PPM: {co2}")
+                        # THE KILL-SWITCH: Check outdoor temp before starting
+                        if f_temp >= config.AQ_MAX_OUTDOOR_TEMP:
+                            print(f"🔥 AQ Alert ignored: Outdoor temp ({f_temp}°F) exceeds "
+                            f"the {config.AQ_MAX_OUTDOOR_TEMP}°F safety limit.")
+                        else:
+                            reason = []
+                            if voc_triggered:
+                                reason.append(f"VOC Index: {voc}")
+                            if nox_triggered:
+                                reason.append(f"NOx Index: {nox}")
+                            if co2_triggered:
+                                reason.append(f"CO2 PPM: {co2}")
 
-                        msg = ", ".join(reason)
-                        print(f"⚠️ SENS55 AQ Alert! Spikes: [{msg}]. Venting.")
-                        await ha_api.set_fan(True)
-                        state.APP_STATE["is_currently_venting"] = True
-                        state.APP_STATE["block_had_aq_venting"] = True
+                            msg = ", ".join(reason)
+                            print(f"⚠️ SENS55 AQ Alert! Spikes: [{msg}]. Venting.")
+                            await ha_api.set_fan(True)
+                            state.APP_STATE["is_currently_venting"] = True
+                            state.APP_STATE["block_had_aq_venting"] = True
 
                 elif is_venting:
-                    if all_clean:
-                        print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
+                    # THE ABORT RAIL: Stop venting if the air is clean OR if it just got too hot outside
+                    if all_clean or f_temp >= config.AQ_MAX_OUTDOOR_TEMP:
+                        if f_temp >= config.AQ_MAX_OUTDOOR_TEMP and not all_clean:
+                            print(f"🔥 Aborting vent: Outdoor temp"
+                            f"hit {f_temp}°F!"
+                            f" Closing fan to protect thermals.")
+                        else:
+                            print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
+
                         await ha_api.set_fan(False)
                         state.APP_STATE["is_currently_venting"] = False
 
@@ -424,11 +426,26 @@ async def master_clock():
                         stored_reached = database.get_session_state("target_reached_time")
                         if stored_reached:
                             state.APP_STATE["target_reached_time"] = datetime.fromisoformat(stored_reached)
-                            print("🧠 Stopwatch Recovered: Target was previously reached at "
-                                  f"{state.APP_STATE['target_reached_time'].strftime('%H:%M:%S')}")
-                        # Restore default view memory on boot
-                        state.APP_STATE["last_written_temp"] = database.get_session_state("last_written_temp") or "<75"
-                        state.APP_STATE["last_written_humid"] = database.get_session_state("last_written_humid") or "20-25%"
+                            print(
+                                "🧠 Stopwatch Recovered: Target was previously reached at "
+                                f"{state.APP_STATE['target_reached_time'].strftime('%H:%M:%S')}"
+                            )
+                        stored_overrides = database.get_session_state("current_overrides")
+                        if stored_overrides:
+                            state.APP_STATE["user_override_count"] = int(stored_overrides)
+                        stored_is_manual = database.get_session_state("is_manual_override")
+                        if stored_is_manual:
+                            state.APP_STATE["is_manual_override"] = stored_is_manual == "True"
+
+                        # Restore the dashboard pointer so it survives a container restart
+                        state.APP_STATE["last_written_temp"] = database.get_session_state(
+                            "last_written_temp"
+                        ) or "<75"
+
+                        state.APP_STATE["last_written_humid"] = database.get_session_state(
+                            "last_written_humid"
+                        ) or "20-25%"
+
                         is_recovery_successful = True
                     else:
                         print(f"🆕 System start: No matching session found. Starting fresh for {current_block}.")
@@ -452,49 +469,52 @@ async def master_clock():
                         gamma = 0.65
                         realized_future_bonus = gamma * current_immediate_reward
                         final_past_reward = pending["immediate_reward"] + realized_future_bonus
-                        print("🕰️ Delayed Grading: Passing actual future physics "
-                            f"({realized_future_bonus:.1f}) back to {pending['block']}")
+                        print(
+                            "🕰️ Delayed Grading: Passing actual future physics "
+                            f"({realized_future_bonus:.1f}) back to {pending['block']}"
+                        )
 
                         database.update_q_score(
                             pending["block"], pending["temp"], pending["humid"],
                             pending["peak"], pending["action"], final_past_reward
                         )
 
-                        # Capture bands from two blocks ago
+                        # Capture the weather bands of the block we just graded
                         state.APP_STATE["last_written_temp"] = pending["temp"]
                         state.APP_STATE["last_written_humid"] = pending["humid"]
+
                         database.save_session_state("last_written_temp", pending["temp"])
                         database.save_session_state("last_written_humid", pending["humid"])
 
                         state.APP_STATE["pending_grade"] = None
                         state.clear_waiting_room()
 
-                        is_override = state.APP_STATE.get("is_manual_override")
-                        had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
-                        bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
+                    is_override = state.APP_STATE.get("is_manual_override")
+                    had_aq_vent = state.APP_STATE.get("block_had_aq_venting", False)
+                    bypass_wipe = config.ENABLE_AQ_FEATURE and had_aq_vent
 
-                        # Evaluate intervention parameters and protect waiting room during AQ events
-                        if is_override and not bypass_wipe:
-                            print("🛑 Human intervened. AI gets no future credit. Wiping room.")
-                            state.APP_STATE["pending_grade"] = None
-                            state.clear_waiting_room()
-                            state.APP_STATE["is_manual_override"] = False
-                        else:
-                            if is_override and bypass_wipe:
-                                print("🍃 AQ Venting active. Preserving waiting room credit.")
+                    # Evaluate intervention parameters and protect waiting room during AQ events
+                    if is_override and not bypass_wipe:
+                        print("🛑 Human intervened. AI gets no future credit. Wiping room.")
+                        state.APP_STATE["pending_grade"] = None
+                        state.clear_waiting_room()
+                        state.APP_STATE["is_manual_override"] = False
+                    else:
+                        if is_override and bypass_wipe:
+                            print("🍃 AQ Venting active. Preserving waiting room credit.")
 
-                            print(f"⏳ Placing '{finished_block}' into the JSON waiting room.")
-                            pending_data = {
-                                "block": finished_block,
-                                "temp": finished_temp_band,
-                                "humid": finished_humid_band,
-                                "peak": is_peak,
-                                "action": finished_action,
-                                "immediate_reward": current_immediate_reward
-                            }
-                            state.APP_STATE["pending_grade"] = pending_data
-                            state.APP_STATE["is_manual_override"] = False
-                            state.save_waiting_room(pending_data)
+                        print(f"⏳ Placing '{finished_block}' into the JSON waiting room.")
+                        pending_data = {
+                            "block": finished_block,
+                            "temp": finished_temp_band,
+                            "humid": finished_humid_band,
+                            "peak": is_peak,
+                            "action": finished_action,
+                            "immediate_reward": current_immediate_reward
+                        }
+                        state.APP_STATE["pending_grade"] = pending_data
+                        state.APP_STATE["is_manual_override"] = False
+                        state.save_waiting_room(pending_data)
 
                 # 3. Apply "Clean Slate" WIPES (Only if starting fresh!)
                 if (is_new_block and not is_startup) or (is_startup and not is_recovery_successful):
@@ -681,6 +701,10 @@ async def master_clock():
                             print("⚠️ Temperature exceeded target. Resetting tracking clock.")
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
+                if current_overrides:
+                    database.save_session_state("current_overrides", "0")
+                if state.APP_STATE.get("is_manual_override", False):
+                    database.save_session_state("is_manual_override", "False")
                 is_peak = current_block == "Peak Hours"
                 had_venting = state.APP_STATE.get("block_had_aq_venting", False)
 
