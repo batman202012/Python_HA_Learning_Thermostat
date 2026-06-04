@@ -10,12 +10,12 @@ import itertools
 import config
 
 DAY_BLOCKS = [
-    "Early Morning", "Late Morning", "Mid-Day",
-    "Early Afternoon", "Late Afternoon"
+    "Mid-Day", "Early Afternoon", "Peak Hours"
+    "Late Afternoon"
 ]
 
 NIGHT_BLOCKS = [
-    "Evening", "Night", "Overnight"
+    "Late Night", "Overnight"
 ]
 
 TEMP_BANDS = [
@@ -74,13 +74,8 @@ def calculate_seed_score(
 
     # 3. Base Temperature Gradient
     if t_idx >= 4:
-        if action == "Pre-cool 4°F":
-            score += 4.0
-        elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
-            score += 2.0
-        elif action == "Eco Mode +2°F":
-            score -= 2.0
-    elif t_idx <= 1:
+        # It is 90°F+ outside. Fighting the sun is highly inefficient.
+        # Reward riding out the heat, penalize aggressive active cooling.
         if action == "Eco Mode +2°F":
             score += 4.0
         elif action == "Normal":
@@ -89,6 +84,18 @@ def calculate_seed_score(
             score -= 2.0
         elif action == "Pre-cool 4°F":
             score -= 4.0
+            
+    elif t_idx <= 1:
+        # It is <80°F outside. Highly efficient time to bank cold air!
+        # Reward aggressive pre-cooling, penalize floating the temperature.
+        if action == "Pre-cool 4°F":
+            score += 4.0
+        elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
+            score += 2.0
+        elif action == "Normal":
+            score += 0.0
+        elif action == "Eco Mode +2°F":
+            score -= 2.0
 
     if "Swamp Cooler" in hardware:
         if h_idx >= 6:
@@ -99,6 +106,21 @@ def calculate_seed_score(
                     score -= 10.0
                 elif action == "Normal":
                     score -= 5.0
+            elif "Window AC" in hardware and "Central Air" not in hardware:
+                if time_block in DAY_BLOCKS:
+                    if "Pre-cool" in action:
+                        base_score -= 50.0
+                    elif "Eco" in action or action == "Normal":
+                        base_score += 10.0
+                    else:
+                        base_score += 0.0
+                else:
+                    if "Pre-cool 4°F" in action:
+                        base_score += 10.0
+                    elif "Pre-cool 2°F" in action:
+                        base_score += 5.0
+                    else:
+                        base_score += 0.0
         else:
             if action == "Pre-cool 4°F":
                 score += 3.0
@@ -128,6 +150,7 @@ def calculate_seed_score(
                     score -= 5.0
                 elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
                     score -= 2.5
+        if
 
     # 4. Biome Gradients
     if biome == "Desert":
