@@ -150,7 +150,6 @@ def calculate_seed_score(
                     score -= 5.0
                 elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
                     score -= 2.5
-        if
 
     # 4. Biome Gradients
     if biome == "Desert":

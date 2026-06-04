@@ -56,7 +56,7 @@ async def get_sensor_state(entity_id: str):
 
     try:
         response = await _client.get(
-            f"{config.HA_URL_STATE}{entity_id}", 
+            f"{config.HA_URL_STATE}{entity_id}",
             headers=headers
         )
         if response.status_code == 200:
