@@ -10,8 +10,8 @@ import itertools
 import config
 
 DAY_BLOCKS = [
-    "Mid-Day", "Early Afternoon", "Peak Hours"
-    "Late Afternoon"
+    "Mid-Day", "Early Afternoon",
+    "Peak Hours", "Late Afternoon"
 ]
 
 NIGHT_BLOCKS = [
@@ -41,6 +41,7 @@ PEAK_STATES = [True, False]
 def calculate_seed_score(
     biome: str,
     hardware: list,
+    time_block: str,
     t_idx: int,
     threat_idx: int,
     h_idx: int,
@@ -84,7 +85,7 @@ def calculate_seed_score(
             score -= 2.0
         elif action == "Pre-cool 4°F":
             score -= 4.0
-            
+
     elif t_idx <= 1:
         # It is <80°F outside. Highly efficient time to bank cold air!
         # Reward aggressive pre-cooling, penalize floating the temperature.
@@ -109,18 +110,14 @@ def calculate_seed_score(
             elif "Window AC" in hardware and "Central Air" not in hardware:
                 if time_block in DAY_BLOCKS:
                     if "Pre-cool" in action:
-                        base_score -= 50.0
+                        score -= 50.0
                     elif "Eco" in action or action == "Normal":
-                        base_score += 10.0
-                    else:
-                        base_score += 0.0
+                        score += 10.0
                 else:
                     if "Pre-cool 4°F" in action:
-                        base_score += 10.0
+                        score += 10.0
                     elif "Pre-cool 2°F" in action:
-                        base_score += 5.0
-                    else:
-                        base_score += 0.0
+                        score += 5.0
         else:
             if action == "Pre-cool 4°F":
                 score += 3.0
@@ -275,7 +272,7 @@ def run_seeder():
         block, c_temp, h_band, is_peak, action, t_idx, tr_idx, h_idx = state_data
 
         q_score = calculate_seed_score(
-            biome, hardware, t_idx, tr_idx, h_idx, is_peak, action
+            biome, hardware, block, t_idx, tr_idx, h_idx, is_peak, action
         )
 
         try:
