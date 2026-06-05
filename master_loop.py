@@ -269,8 +269,9 @@ async def master_clock():
         chosen_action = state.APP_STATE.get("locked_action", "Normal")
 
         # --- THE 5-MINUTE TELEMETRY LOOP ---
-        if now.minute % 5 == 0 and state.APP_STATE["last_evaluated_minute"] != now.minute:
-            # Inside master_loop.py -> master_clock() 5-minute interval loop:
+        is_uninitialized = state.APP_STATE["last_evaluated_minute"] == -1
+        if (now.minute % 5 == 0 or is_uninitialized) and state.APP_STATE["last_evaluated_minute"] != now.minute:
+        #run on fresh boot and every 5 minutes
 
             if config.ENABLE_AQ_FEATURE:
                 aq_data = await ha_api.get_all_air_quality_metrics()
@@ -562,13 +563,17 @@ async def master_clock():
                         print(f"⚠️ Could not fetch live target, using default: {e}")
 
                     last_state = database.get_last_known_state()
-                    if last_state and abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
+                    if is_recovery_successful and last_state and abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
                         print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']}")
                         state.APP_STATE["locked_target"] = last_state["target_temp"]
                         state.APP_STATE["locked_action"] = last_state["action_taken"]
                         state.APP_STATE["recovered_from_reboot"] = True
+                    elif not is_recovery_successful:
+                        print("🆕 Reboot crossed time blocks (or first boot). Relinquishing control to AI.")
+                        state.APP_STATE["locked_target"] = None # Let AI choose the target!
+                        state.APP_STATE["recovered_from_reboot"] = False
                     else:
-                        print("🆕 Physical target changed while offline (or first boot). Treating as Manual Override.")
+                        print("🆕 Physical target changed while offline. Treating as Manual Override.")
                         state.APP_STATE["locked_target"] = actual_thermostat_target
                         state.APP_STATE["recovered_from_reboot"] = False
 
