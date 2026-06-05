@@ -205,26 +205,31 @@ async def grade_current_block(block_name, is_peak: bool):
         if actual_kwh_used < 0:
             actual_kwh_used = 0.0
 
-        # 2.5 TIME-TO-TEMPERATURE PENALTY
+        # 2.5 TIME-AT-TEMPERATURE EVALUATION
         max_minutes = 120.0
         time_weight_factor = 3.0
 
         block_start = state.APP_STATE.get("block_start_time")
-        target_reached = state.APP_STATE.get("target_reached_time")
-
-        if block_start and target_reached:
-            time_diff = target_reached - block_start
-            minutes_taken = time_diff.total_seconds() / 60.0
-        else:
-            minutes_taken = max_minutes
-            print("⚠️ Target never reached in this block. Applying max time penalty.")
-
-        time_penalty = (minutes_taken / max_minutes) * time_weight_factor
-        print(f"⏱️ Time Taken: {minutes_taken:.1f} mins | Time Penalty: -{time_penalty:.2f}")
         block_duration = (datetime.now() - block_start).total_seconds() / 60.0
+
+        minutes_at_target = float(state.APP_STATE.get("minutes_at_target", 0.0))
+        target_percentage = minutes_at_target / max_minutes
+
+        time_impact = (
+            (target_percentage * (time_weight_factor * 2)) - time_weight_factor
+        )
+
+        print(
+            f"⏱️ Time at Target: {minutes_at_target:.1f}/{max_minutes} mins | "
+            f"Time Impact: {time_impact:+.2f}"
+        )
+
         if block_duration < 30:
-            print("⚠️ Block too short for fair grading (Restart detected). Skipping time penalty.")
-            time_penalty = 0.0
+            print(
+                "⚠️ Block too short for fair grading (Restart detected). "
+                "Skipping time impact."
+            )
+            time_impact = 0.0
 
         # 3. Reward Calculation
         overrides = state.APP_STATE.get("user_override_count", 0)
@@ -238,7 +243,7 @@ async def grade_current_block(block_name, is_peak: bool):
         )
 
         # Final score for this 2-hour window
-        reward = base_reward - time_penalty
+        reward = base_reward + time_impact
 
         print(f"✅ {block_name} calculation complete. Immediate Reward: {reward:.2f} | kWh: {actual_kwh_used:.2f}")
 
@@ -521,7 +526,7 @@ async def master_clock():
                     state.APP_STATE["active_block"] = current_block
                     state.APP_STATE["start_kwh"] = current_kwh
                     state.APP_STATE["user_override_count"] = 0
-                    state.APP_STATE["target_reached_time"] = None
+                    state.APP_STATE["minutes_at_target"] = 0.0
                     state.APP_STATE["is_manual_override"] = False
                     state.APP_STATE["block_had_aq_venting"] = False
                     state.APP_STATE["block_start_time"] = datetime.now()
@@ -529,7 +534,7 @@ async def master_clock():
                     database.save_session_state("active_block", current_block)
                     database.save_session_state("start_kwh", current_kwh)
                     database.save_session_state("block_start_time", state.APP_STATE["block_start_time"].isoformat())
-                    database.save_session_state("target_reached_time", "")
+                    database.save_session_state("minutes_at_target", "0.0")
 
                     try:
                         baseline = float(database.get_scheduled_temp(current_block))
@@ -676,29 +681,32 @@ async def master_clock():
 
                 target_temp = state.APP_STATE.get("locked_target", 72.0)
                 if target_temp is None:
-                    target_temp = 75.0
+                    target_temp = 72.0
 
                 # D. EXECUTE & LOG
                 live_action = state.APP_STATE.get("locked_action", "Normal")
-                live_target = state.APP_STATE.get("locked_target", 72.0)
                 running_kwh = float(current_kwh) - float(state.APP_STATE.get("start_kwh", 0.0))
-                state.APP_STATE["expected_target_temp"] = float(live_target)
-                asyncio.create_task(ha_api.trigger_cooling(live_target))
+                state.APP_STATE["expected_target_temp"] = float(target_temp)
+                asyncio.create_task(ha_api.trigger_cooling(target_temp))
 
                 # Check if the indoor temperature satisfies the cooling target'
                 if is_temp_valid:
-                    if indoor_temp <= live_target:
-                        if state.APP_STATE.get("target_reached_time") is None:
-                            reached_now = datetime.now()
-                            state.APP_STATE["target_reached_time"] = datetime.now()
-                            database.save_session_state("target_reached_time", reached_now.isoformat())
-                            print(f"⏱️ Target reached at {datetime.now().strftime('%H:%M:%S')}")
+                    if indoor_temp <= target_temp:
+                        current_mins = float(
+                            state.APP_STATE.get("minutes_at_target", 0.0)
+                        )
+                        new_mins = current_mins + 5.0
+                        state.APP_STATE["minutes_at_target"] = new_mins
+
+                        database.save_session_state("minutes_at_target", str(new_mins))
+                        print(
+                            f"⏱️ Target Maintained: {new_mins} total mins in this block."
+                        )
                     else:
-                        # Temperature exceeded target; clear tracking to capture recovery duration
-                        if state.APP_STATE.get("target_reached_time") is not None:
-                            state.APP_STATE["target_reached_time"] = None
-                            database.save_session_state("target_reached_time", "")
-                            print("⚠️ Temperature exceeded target. Resetting tracking clock.")
+                        print(
+                            f"⚠️ Temp ({indoor_temp}°F) is above target "
+                            f"({target_temp}°F)."
+                        )
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 if current_overrides:
@@ -716,9 +724,9 @@ async def master_clock():
                 )
 
                 is_ambient_cooling = False
-                if f_temp > 40.0 and f_temp < (live_target - 4):
+                if f_temp > 40.0 and f_temp < (target_temp - 4):
                     is_ambient_cooling = True
-                    print(f"🌬️ Ambient Cooling Active: Outdoor {f_temp}°F is 4°+ below Target {live_target}°F.")
+                    print(f"🌬️ Ambient Cooling Active: Outdoor {f_temp}°F is 4°+ below Target {target_temp}°F.")
 
                 # Update the action name for the log so you can see it in the dashboard
                 display_action = live_action
@@ -731,7 +739,7 @@ async def master_clock():
                     current_block, indoor_temp, target_temp, f_humid,
                     display_action, max(0, running_kwh), state.APP_STATE.get("user_override_count", 0), snapshot_reward
                 )
-                print(f"✅ 5-minute log successful. ({live_action} @ {live_target}°F"
+                print(f"✅ 5-minute log successful. ({live_action} @ {target_temp}°F"
                       f" | Live Reward: {snapshot_reward:.2f})")
 
             except Exception as e:

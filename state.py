@@ -40,7 +40,7 @@ APP_STATE = {
     "last_evaluated_minute": -1,
     "last_grade_run": None,
     "block_start_time": None,
-    "target_reached_time": None,
+    "minutes_at_target": 0.0,
     "active_block": None,      # Tracks which time block we are in
     "locked_action": None,     # The decision we are sticking with
     "locked_target": None,     # The temperature we are maintaining
