@@ -99,25 +99,25 @@ def calculate_seed_score(
             score -= 2.0
 
     if "Swamp Cooler" in hardware:
-        if h_idx >= 6:
-            if not has_ac:
-                if action == "Pre-cool 4°F":
-                    score -= 15.0
-                elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
-                    score -= 10.0
-                elif action == "Normal":
-                    score -= 5.0
-            elif "Window AC" in hardware and "Central Air" not in hardware:
-                if time_block in DAY_BLOCKS:
-                    if "Pre-cool" in action:
-                        score -= 50.0
-                    elif "Eco" in action or action == "Normal":
-                        score += 10.0
-                else:
-                    if "Pre-cool 4°F" in action:
-                        score += 10.0
-                    elif "Pre-cool 2°F" in action:
-                        score += 5.0
+        if h_idx >= 3:
+                if not has_ac:
+                    if action == "Pre-cool 4°F":
+                        score -= 15.0
+                    elif action in ["Pre-cool 2°F", "Night Drop 2°F"]:
+                        score -= 10.0
+                    elif action == "Normal":
+                        score -= 5.0
+                elif "Window AC" in hardware and "Central Air" not in hardware:
+                    if time_block in DAY_BLOCKS:
+                        if "Pre-cool" in action:
+                            score -= 50.0
+                        elif "Eco" in action or action == "Normal":
+                            score += 10.0
+                    else:
+                        if "Pre-cool 4°F" in action:
+                            score += 10.0
+                        elif "Pre-cool 2°F" in action:
+                            score += 5.0
         else:
             if action == "Pre-cool 4°F":
                 score += 3.0
