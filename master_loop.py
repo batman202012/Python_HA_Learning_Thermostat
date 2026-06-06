@@ -707,11 +707,6 @@ async def master_clock():
                         print(
                             f"⏱️ Target Maintained: {new_mins} total mins in this block."
                         )
-                    else:
-                        print(
-                            f"⚠️ Temp ({indoor_temp}°F) is above target "
-                            f"({target_temp}°F)."
-                        )
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 if current_overrides:
