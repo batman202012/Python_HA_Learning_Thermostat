@@ -247,8 +247,8 @@ async def grade_current_block(block_name, is_peak: bool):
 
         print(f"✅ {block_name} calculation complete. Immediate Reward: {reward:.2f} | kWh: {actual_kwh_used:.2f}")
 
-    except Exception as e:
-        print(f"❌ Error calculating grade for {block_name}: {e}")
+    except (ValueError, TypeError) as e:
+        print(f"❌ Data calculation error for {block_name}: {e}")
         reward = -5.0 # Penalty for failing to provide data
 
     # CRITICAL: Hand the number back to the master_clock!
@@ -376,40 +376,30 @@ async def master_clock():
                 else:
                     current_kwh = float(raw_kwh)
 
-                # B. Weather Fetch (Fail-safe against the 'float' error)
-                try:
-                    new_f_temp = await ha_api.get_sensor_state(config.OUTSIDE_TEMP_SENSOR)
-                    new_f_humid = await ha_api.get_sensor_state(config.OUTSIDE_HUMD_SENSOR)
+            # B. Weather Fetch (Fail-safe against the 'float' error)
+                new_f_temp = await ha_api.get_sensor_state(config.OUTSIDE_TEMP_SENSOR)
+                new_f_humid = await ha_api.get_sensor_state(config.OUTSIDE_HUMD_SENSOR)
 
-                    # --- 1. Handle Temperature Independently ---
-                    if new_f_temp is not None and new_f_temp > 32.0:
-                        f_temp = new_f_temp # Update with fresh data
+                # --- 1. Handle Temperature Independently ---
+                if new_f_temp is not None and new_f_temp > 32.0:
+                    f_temp = new_f_temp # Update with fresh data
+                else:
+                    # If None (reloading), only hold if we already have a past value
+                    if f_temp is not None:
+                        print(f"📡 Temp Sensor busy. Holding last value: {f_temp}°F")
                     else:
-                        # If None (reloading), only hold if we already have a past value
-                        if f_temp is not None:
-                            print(f"📡 Temp Sensor busy. Holding last value: {f_temp}°F")
-                        else:
-                            # If it's the very first boot and it fails, use a hot fallback so we don't ignore the PC!
-                            print("⚠️ Temp sensor unavailable on boot. Using 86.0°F fallback.")
-                            f_temp = 86.0
-
-                    # --- 2. Handle Humidity Independently ---
-                    if new_f_humid is not None:
-                        f_humid = new_f_humid
-                    else:
-                        if f_humid is not None:
-                            print(f"📡 Humid Sensor busy. Holding last value: {f_humid}%")
-                        else:
-                            print("⚠️ Humid sensor unavailable. Using 20.0% fallback.")
-                            f_humid = 20.0
-
-                except Exception as e:
-                    # Catch the actual error so you can see if it's a network drop or a typo
-                    print(f"🛑 Critical error fetching outdoor sensors: {e}")
-                    # Only force fallbacks if we absolutely have no past data to hold onto
-                    if f_temp is None:
+                        # If it's the very first boot and it fails, use a hot fallback so we don't ignore the PC!
+                        print("⚠️ Temp sensor unavailable on boot. Using 86.0°F fallback.")
                         f_temp = 86.0
-                    if f_humid is None:
+
+                # --- 2. Handle Humidity Independently ---
+                if new_f_humid is not None:
+                    f_humid = new_f_humid
+                else:
+                    if f_humid is not None:
+                        print(f"📡 Humid Sensor busy. Holding last value: {f_humid}%")
+                    else:
+                        print("⚠️ Humid sensor unavailable. Using 20.0% fallback.")
                         f_humid = 20.0
 
                 # --- C. BLOCK TRANSITION & INITIALIZATION ---
@@ -539,7 +529,7 @@ async def master_clock():
 
                     try:
                         baseline = float(database.get_scheduled_temp(current_block))
-                    except Exception:
+                    except (ValueError, TypeError, sqlite3.Error):
                         baseline = 72.0
 
                     # Reset the locked target back to the true baseline before the AI chooses an action
@@ -551,23 +541,34 @@ async def master_clock():
                     actual_thermostat_target = 73.0
                     try:
                         async with httpx.AsyncClient(timeout=10) as client:
-                            response = await client.get(f"{config.HA_URL_STATE}{config.THERMOSTAT_ENTITY_ID}",
-                                                         headers=headers)
+                            response = await client.get(
+                                f"{config.HA_URL_STATE}{config.THERMOSTAT_ENTITY_ID}",
+                                headers=headers
+                            )
                             if response.status_code == 200:
                                 data = response.json()
                                 ha_target = data.get("attributes", {}).get("temperature")
-                                if ha_target:
+                                if ha_target is not None:
                                     actual_thermostat_target = float(ha_target)
-                                    print(f"🌡️ Live Thermostat Target detected: {actual_thermostat_target}°F")
-                    except Exception as e:
-                        print(f"⚠️ Could not fetch live target, using default: {e}")
+                                    print(
+                                        "🌡️ Live Thermostat Target detected: "
+                                        f"{actual_thermostat_target}°F"
+                                    )
+                    except httpx.RequestError as e:
+                        # Safely catch HTTPX timeouts and connection drops on boot
+                        print(f"⚠️ Network error fetching live target, using default: {e}")
+
+                    except (ValueError, TypeError) as e:
+                        # Safely catch HA returning non-float states like 'unavailable'
+                        print(f"⚠️ Data format error fetching live target, using default: {e}")
 
                     last_state = database.get_last_known_state()
-                    if is_recovery_successful and last_state and abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
-                        print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']}")
-                        state.APP_STATE["locked_target"] = last_state["target_temp"]
-                        state.APP_STATE["locked_action"] = last_state["action_taken"]
-                        state.APP_STATE["recovered_from_reboot"] = True
+                    if is_recovery_successful and last_state:
+                        if abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
+                            print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']}")
+                            state.APP_STATE["locked_target"] = last_state["target_temp"]
+                            state.APP_STATE["locked_action"] = last_state["action_taken"]
+                            state.APP_STATE["recovered_from_reboot"] = True
                     elif not is_recovery_successful:
                         print("🆕 Reboot crossed time blocks (or first boot). Relinquishing control to AI.")
                         state.APP_STATE["locked_target"] = None # Let AI choose the target!
@@ -584,7 +585,7 @@ async def master_clock():
 
                     try:
                         baseline = float(database.get_scheduled_temp(current_block))
-                    except Exception as e:
+                    except (ValueError, TypeError, sqlite3.Error) as e:
                         print(f"⚠️ DB Error fetching schedule: {e}")
                         baseline = 75.0  # Safety net
 
@@ -592,8 +593,8 @@ async def master_clock():
                         # Only check the future during morning/night prep blocks
                         if current_block in ["Overnight", "Early Morning", "Late Morning"]:
                             forecast_rec, peak_temp = await evaluate_precooling()
-                    except Exception as e:
-                        print(f"⚠️ Advisor Error: {e}")
+                    except (KeyError, IndexError, TypeError, ValueError) as e:
+                        print(f"⚠️ Advisor JSON/Data Error: {e}")
                         forecast_rec = None
                         peak_temp = None
 
@@ -704,9 +705,6 @@ async def master_clock():
                         state.APP_STATE["minutes_at_target"] = new_mins
 
                         database.save_session_state("minutes_at_target", str(new_mins))
-                        print(
-                            f"⏱️ Target Maintained: {new_mins} total mins in this block."
-                        )
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 if current_overrides:
@@ -742,7 +740,7 @@ async def master_clock():
                 print(f"✅ 5-minute log successful. ({live_action} @ {target_temp}°F"
                       f" | Live Reward: {snapshot_reward:.2f})")
 
-            except Exception as e:
-                print(f"❌ CRITICAL ERROR IN MASTER CLOCK: {e}")
+            except (ValueError, TypeError, KeyError) as e:
+                print(f"❌ DATA FORMAT ERROR IN MASTER CLOCK: {e}")
 
         await asyncio.sleep(1)
