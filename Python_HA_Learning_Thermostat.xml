@@ -46,5 +46,5 @@
   <Config Name="CO2 Volatile Limit Threshold" Target="AQ_CO2_THRESHOLD" Default="1100.0" Description="Limit constraint mapping triggering penalty minimization loops." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="CO2 Normalized Clearance Point" Target="AQ_CO2_CLEAN_THRESHOLD" Default="800.0" Description="Clearance metrics determining localized target resets." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
-  <Config Name="Debug Mode Toggle" Target="DEBUG_MODE" Default="True" Description="Enables verbose logging outputs for development and troubleshooting purposes." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Debug Mode Toggle" Target="DEBUG_MODE" Default="False" Description="Enables verbose logging outputs for development and troubleshooting purposes." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>
