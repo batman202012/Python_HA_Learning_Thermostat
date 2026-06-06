@@ -95,7 +95,8 @@ async def handle_thermostat_change(state_data):
         sync_ha_to_schedule(new_temp)
     else:
         # This was an AI-driven change, so we ignore it for the override counter
-        print(f"✅ Automated change to {new_temp}°F confirmed.")
+        if config.DEBUG_MODE_ENV is True:
+            print(f"✅ Automated change to {new_temp}°F confirmed.")
 
 async def evaluate_precooling():
     """Analyzes forecast with UTC-to-Local conversion."""
@@ -256,7 +257,8 @@ async def grade_current_block(block_name, is_peak: bool):
 
 async def master_clock():
     """Master clock that monitors everything at 5 minutes intervals"""
-    print("🕰️ High-Res Master Clock started. Monitoring 5 minute intervals.")
+    if config.DEBUG_MODE_ENV is True:
+        print("🕰️ High-Res Master Clock started. Monitoring 5 minute intervals.")
     f_temp = 75.0  # Initial default
     f_humid = 20.0 # Initial default
 
@@ -322,8 +324,9 @@ async def master_clock():
                     if any_triggered:
                         # THE KILL-SWITCH: Check outdoor temp before starting
                         if f_temp >= config.AQ_MAX_OUTDOOR_TEMP:
-                            print(f"🔥 AQ Alert ignored: Outdoor temp ({f_temp}°F) exceeds "
-                            f"the {config.AQ_MAX_OUTDOOR_TEMP}°F safety limit.")
+                            if config.DEBUG_MODE_ENV is True:
+                                print(f"🔥 AQ Alert ignored: Outdoor temp ({f_temp}°F) exceeds "
+                                f"the {config.AQ_MAX_OUTDOOR_TEMP}°F safety limit.")
                         else:
                             reason = []
                             if voc_triggered:
@@ -347,7 +350,7 @@ async def master_clock():
                             f"hit {f_temp}°F!"
                             f" Closing fan to protect thermals.")
                         else:
-                            print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
+                            print(f"✅ AQ is back to safe levels. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
 
                         await ha_api.set_fan(False)
                         state.APP_STATE["is_currently_venting"] = False
@@ -419,13 +422,6 @@ async def master_clock():
                         if stored_time:
                             state.APP_STATE["block_start_time"] = datetime.fromisoformat(stored_time)
 
-                        stored_reached = database.get_session_state("target_reached_time")
-                        if stored_reached:
-                            state.APP_STATE["target_reached_time"] = datetime.fromisoformat(stored_reached)
-                            print(
-                                "🧠 Stopwatch Recovered: Target was previously reached at "
-                                f"{state.APP_STATE['target_reached_time'].strftime('%H:%M:%S')}"
-                            )
                         stored_overrides = database.get_session_state("current_overrides")
                         if stored_overrides:
                             state.APP_STATE["user_override_count"] = int(stored_overrides)
@@ -705,6 +701,12 @@ async def master_clock():
                         state.APP_STATE["minutes_at_target"] = new_mins
 
                         database.save_session_state("minutes_at_target", str(new_mins))
+                    else:
+                        if config.DEBUG_MODE_ENV is True:
+                            print(
+                                f"⚠️ Temp ({indoor_temp}°F) is above target "
+                                f"({target_temp}°F)."
+                            )
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 if current_overrides:
@@ -720,16 +722,6 @@ async def master_clock():
                     is_peak_pricing=is_peak,
                     block_had_aq_venting=had_venting
                 )
-
-                is_ambient_cooling = False
-                if f_temp > 40.0 and f_temp < (target_temp - 4):
-                    is_ambient_cooling = True
-                    print(f"🌬️ Ambient Cooling Active: Outdoor {f_temp}°F is 4°+ below Target {target_temp}°F.")
-
-                # Update the action name for the log so you can see it in the dashboard
-                display_action = live_action
-                if is_ambient_cooling:
-                    display_action = f"{live_action} (Fan Only)"
 
                 state.APP_STATE["last_f_temp"] = f_temp
                 state.APP_STATE["last_f_humid"] = f_humid

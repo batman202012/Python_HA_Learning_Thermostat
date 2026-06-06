@@ -111,7 +111,8 @@ async def get_afternoon_forecast():
         "type": "hourly"
     }
 
-    print("📡 Requesting forecast from weather.forecast_home...")
+    if config.DEBUG_MODE_ENV is True:
+        print(f"📡 Requesting forecast from {config.MET_IO_FORCAST}...")
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -127,11 +128,13 @@ async def get_afternoon_forecast():
                     entity_forecast = service_output.get(config.MET_IO_FORCAST, {})
                     forecasts = entity_forecast.get("forecast", [])
                     if forecasts:
-                        print(f"✅ Success! Parsed {len(forecasts)} forecast points from service_response.")
+                        if config.DEBUG_MODE_ENV is True:
+                            print(f"✅ Success! Parsed {len(forecasts)} forecast points from service_response.")
                     else:
                         if isinstance(service_output, list):
                             forecasts = service_output
-                            print(f"✅ Parsed {len(forecasts)} points from flat list.")
+                            if config.DEBUG_MODE_ENV is True:
+                                print(f"✅ Parsed {len(forecasts)} points from flat list.")
                         else:
                             print(f"⚠️ Keys in service_response: {list(service_output.keys())}")
                     return forecasts

@@ -71,7 +71,8 @@ class ConsoleInterceptor:
 
 # Load the hidden variables from the .env file
 load_dotenv()
-print(f"📂 Database localized to: {config.DB_PATH}")
+if config.DEBUG_MODE_ENV is True:
+    print(f"📂 Database localized to: {config.DB_PATH}")
 
 
 # --- FASTAPI SETUP ---
@@ -160,7 +161,8 @@ async def update_schedule(time_block: str, target_temp: float):
 
             conn.commit()
 
-        print(f"💾 Schedule saved: {time_block} set to {target_temp}°F")
+        if config.DEBUG_MODE_ENV is True:
+            print(f"💾 Schedule saved: {time_block} set to {target_temp}°F")
         return {"status": "success"}
 
     except sqlite3.Error as e:
