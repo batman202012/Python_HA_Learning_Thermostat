@@ -84,31 +84,36 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
 
     temp_band, humidity_band = get_state_bands(forecast_temp, forecast_humidity, peak_temp)
 
-    # FIX: Use "in" to catch 'Early Morning', 'Late Morning', etc.
     if "Morning" in time_block or "Afternoon" in time_block or "Mid-Day" in time_block:
         available_actions = ["Normal", "Pre-cool 2°F", "Pre-cool 4°F"]
     else:
-        # Evening/Night/Overnight toolkit
         available_actions = ["Normal", "Night Drop 2°F", "Eco Mode +2°F"]
-    print(f"🔍 DEBUG X-RAY: Searching DB for -> Block: '{time_block}', Temp: '{temp_band}'"
-          f", Humid: '{humidity_band}', Peak: {is_peak_pricing}")
 
+    q_scores = {}
+    total_visits = 0
 
-    # 2. Check the historical cheat sheet (Q-Table)
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT action_taken, q_score, visits FROM q_table
-        WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ?
-    ''', (time_block, temp_band, humidity_band, is_peak_pricing))
-    results = cursor.fetchall()
-    conn.close()
+    try:
+        # Use a context manager to handle connections safely
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT action_taken, q_score, visits FROM q_table
+                WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ?
+            ''', (time_block, temp_band, humidity_band, is_peak_pricing))
+            results = cursor.fetchall()
 
-    q_scores = {row[0]: row[1] for row in results}
+            # Populate scores and total visits
+            for row in results:
+                action, score, visits = row
+                q_scores[action] = float(score)
+                total_visits += (int(visits) if visits else 0)
+
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Error (get_best_q_action): {e}")
+        return "Normal", baseline_temp
 
     # Map database records to action scores and track historical experience
     untried = [a for a in available_actions if a not in q_scores]
-    total_visits = sum(row[2] or 0 for row in results)
 
     # Ensure all available actions are in the dictionary before we pick the max!
     for action in available_actions:

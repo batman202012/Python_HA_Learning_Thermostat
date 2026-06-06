@@ -70,18 +70,22 @@ def save_session_state(key, value):
             cursor = conn.cursor()
             cursor.execute("INSERT OR REPLACE INTO session_state (key, value) VALUES (?, ?)", (key, str(value)))
             conn.commit()
-    except Exception as e:
-        print(f"⚠️ Session Save Error: {e}")
+    except sqlite3.Error as e:
+        print(f"⚠️ DatabaseSession Save Error: {e}")
 
 def get_session_state(key):
     """Retrieves a piece of state from the database."""
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT value FROM session_state WHERE key = ?", (key,))
+            cursor.execute(
+                "SELECT value FROM session_state WHERE key = ?",
+                (key,)
+            )
             row = cursor.fetchone()
             return row[0] if row else None
-    except Exception:
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Session Read Error for '{key}': {e}")
         return None
 
 def get_last_known_state():
@@ -98,41 +102,47 @@ def get_last_known_state():
             row = cursor.fetchone()
             if row:
                 return {"target_temp": float(row[0]), "action_taken": row[1]}
-    except Exception as e:
-        print(f"⚠️ Could not fetch last state from memory: {e}")
+    except sqlite3.Error as e:
+        print(f"⚠️ Could not fetch last state from database: {e}")
     return None
 
 def update_q_score(time_block, temp_band, humidity_band, is_peak, action, final_reward):
     """Updates the Q-table with the finalized reward and increments the visit counter."""
     alpha = 0.5  # Learning Rate
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
 
-    # --- 1. GET CURRENT SCORE & VISITS ---
-    cursor.execute('''
-        SELECT q_score, visits FROM q_table
-        WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ? AND action_taken = ?
-    ''', (time_block, temp_band, humidity_band, is_peak, action))
-    row = cursor.fetchone()
+            # --- 1. GET CURRENT SCORE & VISITS ---
+            cursor.execute('''
+                SELECT q_score, visits FROM q_table
+                WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ? AND action_taken = ?
+            ''', (time_block, temp_band, humidity_band, is_peak, action))
+            row = cursor.fetchone()
 
-    current_q = row[0] if row else 0.0
-    # Handle older rows that might have a NULL visit count before the migration
-    visits = row[1] if row and row[1] is not None else 0
+            current_q = row[0] if row else 0.0
+            # Handle older rows that might have a NULL visit count before the migration
+            visits = row[1] if row and row[1] is not None else 0
 
-    # --- 2. TEMPORAL DIFFERENCE MATH ---
-    new_q = current_q + alpha * (final_reward - current_q)
-    new_visits = visits + 1
+            # --- 2. TEMPORAL DIFFERENCE MATH ---
+            new_q = current_q + alpha * (final_reward - current_q)
+            new_visits = visits + 1
 
-    # --- 3. SAVE TO MATRIX ---
-    cursor.execute('''
-        INSERT OR REPLACE INTO q_table 
-        (time_block, temp_band, humidity_band, is_peak_pricing, action_taken, q_score, visits)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (time_block, temp_band, humidity_band, is_peak, action, new_q, new_visits))
+            # --- 3. SAVE TO MATRIX ---
+            cursor.execute('''
+                INSERT OR REPLACE INTO q_table 
+                (time_block, temp_band, humidity_band, is_peak_pricing, action_taken, q_score, visits)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (time_block, temp_band, humidity_band, is_peak, action, new_q, new_visits))
 
-    conn.commit()
-    conn.close()
+            conn.commit()
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Error (update_q_score): {e}")
+        return None
+    except (ValueError, TypeError) as e:
+        print(f"⚠️ Math/Data Casting Error (update_q_score): {e}")
+        return None
 
     print(f"💾 Q-Table Updated | Block: {time_block} | Action: {action}")
     print(f"   ↳ New Q-Score: {new_q:.2f} | Total Days Experienced: {new_visits}")
@@ -141,50 +151,58 @@ def update_q_score(time_block, temp_band, humidity_band, is_peak, action, final_
 
 def log_history(time_block: str, actual_temp: float, target_temp: float, actual_humidity: float,
                 action_taken: str, kwh_consumed: float, user_overrides: int, reward_granted: float):
-    """Saves performance data. Ensure brain.db was deleted recently to support 'target_temp'."""
+    """Saves performance data."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        local_now = datetime.now().isoformat()
-        cursor.execute('''
-            INSERT INTO history_log (date_time, time_block, actual_temp, target_temp, actual_humidity, 
-                                     action_taken, kwh_consumed, user_overrides, reward_granted)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (local_now, time_block, actual_temp, target_temp, actual_humidity,
-              action_taken, kwh_consumed, user_overrides, reward_granted))
-        conn.commit()
-        conn.close()
-    except sqlite3.OperationalError as e:
-        print(f"Database error: {e}. (Did you delete brain.db to add the new column?)")
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            local_now = datetime.now().isoformat()
+            cursor.execute('''
+                INSERT INTO history_log (
+                    date_time, time_block, actual_temp, target_temp, actual_humidity, 
+                    action_taken, kwh_consumed, user_overrides, reward_granted
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (local_now, time_block, actual_temp, target_temp, actual_humidity,
+                  action_taken, kwh_consumed, user_overrides, reward_granted))
+
+    except sqlite3.Error as e:
+        print(f"⚠️ Database error logging history: {e}")
 
 def get_scheduled_temp(time_block: str) -> float:
     """Reads the user's baseline schedule from the database."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
 
-    # Fetch the target temp for the specific time block
-    cursor.execute('SELECT target_temp FROM schedule WHERE time_block = ?', (time_block,))
-    result = cursor.fetchone()
-    conn.close()
+            # Fetch the target temp for the specific time block
+            cursor.execute('SELECT target_temp FROM schedule WHERE time_block = ?', (time_block,))
+            result = cursor.fetchone()
 
-    # If the user hasn't set a schedule for this block, default to 72F
-    if result is None:
+        # If the user hasn't set a schedule for this block, default to 72F
+        if result is None:
+            return 72.0
+
+        return float(result[0])
+    except sqlite3.Error as e:
+        print(f"⚠️ Database error fetching scheduled temp: {e}")
         return 72.0
-
-    return float(result[0])
+    except (ValueError, TypeError) as e:
+        print(f"⚠️ Data format error fetching scheduled temp: {e}")
+        return 72.0
 
 def get_state_experience_count(time_block: str, temp_band: str, humid_band: str, is_peak: bool) -> int:
     """Counts how many days the AI has been graded in this EXACT weather state."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT SUM(visits) FROM q_table 
-            WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ?
-        ''', (time_block, temp_band, humid_band, is_peak))
-        total_visits = cursor.fetchone()[0]
-        conn.close()
-        return total_visits if total_visits else 0
-    except Exception as e:
-        print(f"⚠️ State Experience Check Error: {e}")
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT SUM(visits) FROM q_table 
+                WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ?
+            ''', (time_block, temp_band, humid_band, is_peak))
+            total_visits = cursor.fetchone()[0]
+        if total_visits and total_visits[0] is not None:
+            return int(total_visits[0])
+        return 0
+    except sqlite3.Error as e:
+        print(f"⚠️ Database State Experience Check Error: {e}")
         return 0

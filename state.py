@@ -12,7 +12,7 @@ def save_waiting_room(pending_data):
     try:
         with open(WAITING_ROOM_FILE, "w", encoding="utf-8") as f:
             json.dump(pending_data, f)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         print(f"⚠️ Failed to save waiting room: {e}")
 
 def load_waiting_room():
@@ -21,17 +21,16 @@ def load_waiting_room():
         try:
             with open(WAITING_ROOM_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(f"⚠️ Waiting room corrupted or empty: {e}")
-    return None
 
 def clear_waiting_room():
     """Deletes the waiting room file so we don't accidentally double-grade it."""
     if os.path.exists(WAITING_ROOM_FILE):
         try:
             os.remove(WAITING_ROOM_FILE)
-        except Exception:
-            pass
+        except OSError as e:
+            print(f"⚠️ Failed to delete waiting room file: {e}")
 
 APP_STATE = {
     "expected_target_temp": None,

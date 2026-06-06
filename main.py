@@ -109,17 +109,16 @@ async def dashboard(request: Request):
     # 2. If state is empty (e.g., on a fresh restart), pull the LAST written block from memory
     if not default_temp or not default_humid:
         try:
-            conn = sqlite3.connect(config.DB_PATH)
-            cursor = conn.cursor()
-            # Grab the most recent state added to the AI's Q-Table memory
-            cursor.execute('''
-                SELECT temp_band, humidity_band 
-                FROM q_table 
-                ORDER BY id DESC 
-                LIMIT 1
-            ''')
-            row = cursor.fetchone()
-            conn.close()
+            with sqlite3.connect(config.DB_PATH) as conn:
+                cursor = conn.cursor()
+                # Grab the most recent state added to the AI's Q-Table memory
+                cursor.execute('''
+                    SELECT temp_band, humidity_band 
+                    FROM q_table 
+                    ORDER BY id DESC 
+                    LIMIT 1
+                ''')
+                row = cursor.fetchone()
 
             if row:
                 default_temp = row[0]
@@ -128,7 +127,8 @@ async def dashboard(request: Request):
                 # Absolute fallback only if the database is 100% completely empty
                 default_temp = "<75"
                 default_humid = "20-25%"
-        except Exception as e:
+
+        except sqlite3.Error as e:
             print(f"Error fetching fallback Q-table default: {e}")
             default_temp = "<75"
             default_humid = "20-25%"
@@ -148,49 +148,59 @@ async def dashboard(request: Request):
 @app.post("/api/schedule")
 async def update_schedule(time_block: str, target_temp: float):
     """API Endpoint to manually update the cooling schedule."""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
 
-    cursor.execute('''
-        INSERT INTO schedule (time_block, target_temp)
-        VALUES (?, ?)
-        ON CONFLICT(time_block) DO UPDATE SET target_temp = excluded.target_temp
-    ''', (time_block, target_temp))
+            cursor.execute('''
+                INSERT INTO schedule (time_block, target_temp)
+                VALUES (?, ?)
+                ON CONFLICT(time_block) DO UPDATE SET target_temp = excluded.target_temp
+            ''', (time_block, target_temp))
 
-    conn.commit()
-    conn.close()
+            conn.commit()
 
-    print(f"💾 Schedule saved: {time_block} set to {target_temp}°F")
-    return {"status": "success"}
+        print(f"💾 Schedule saved: {time_block} set to {target_temp}°F")
+        return {"status": "success"}
+
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Error (update_schedule): {e}")
+        return {"status": "error", "message": "Failed to update schedule."}
 
 
 @app.get("/api/q_table")
 async def get_q_table():
     """Fetches the current learned scores."""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT time_block, temp_band, humidity_band,"
-                   " is_peak_pricing, action_taken, q_score"
-                   " FROM q_table ORDER BY q_score DESC")
-    columns = [column[0] for column in cursor.description]
-    results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    conn.close()
-    return {"data": results}
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT time_block, temp_band, humidity_band,"
+                        " is_peak_pricing, action_taken, q_score"
+                        " FROM q_table ORDER BY q_score DESC")
+            columns = [column[0] for column in cursor.description]
+            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return {"data": results}
 
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Error in /api/q_table: {e}")
+        return {"data": []}
 
 @app.get("/api/history")
 async def get_history():
     """Fetches the recent execution history."""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT date_time, time_block, actual_temp,"
-                   " target_temp, actual_humidity, action_taken, user_overrides,"
-                   " reward_granted FROM history_log ORDER BY id DESC LIMIT 700")
-    columns = [column[0] for column in cursor.description]
-    results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    conn.close()
-    return {"data": results}
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT date_time, time_block, actual_temp,"
+                        " target_temp, actual_humidity, action_taken, user_overrides,"
+                        " reward_granted FROM history_log ORDER BY id DESC LIMIT 700")
+            columns = [column[0] for column in cursor.description]
+            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return {"data": results}
 
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Error in /api/history: {e}")
+        return {"data": []}
 
 @app.get("/api/logs")
 def get_terminal_logs():
