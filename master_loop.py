@@ -701,6 +701,10 @@ async def master_clock():
                         state.APP_STATE["minutes_at_target"] = new_mins
 
                         database.save_session_state("minutes_at_target", str(new_mins))
+                        if config.DEBUG_MODE_ENV is True:
+                            print(
+                                f"⏱️ Target Maintained: {new_mins} total mins in this block."
+                            )
                     else:
                         if config.DEBUG_MODE_ENV is True:
                             print(
@@ -727,7 +731,7 @@ async def master_clock():
                 state.APP_STATE["last_f_humid"] = f_humid
                 database.log_history(
                     current_block, indoor_temp, target_temp, f_humid,
-                    display_action, max(0, running_kwh), state.APP_STATE.get("user_override_count", 0), snapshot_reward
+                    live_action, max(0, running_kwh), state.APP_STATE.get("user_override_count", 0), snapshot_reward
                 )
                 print(f"✅ 5-minute log successful. ({live_action} @ {target_temp}°F"
                       f" | Live Reward: {snapshot_reward:.2f})")
