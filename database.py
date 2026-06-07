@@ -199,10 +199,12 @@ def get_state_experience_count(time_block: str, temp_band: str, humid_band: str,
                 SELECT SUM(visits) FROM q_table 
                 WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ?
             ''', (time_block, temp_band, humid_band, is_peak))
-            total_visits = cursor.fetchone()[0]
-        if total_visits and total_visits[0] is not None:
-            return int(total_visits[0])
+            row = cursor.fetchone()
+
+        if row and row[0] is not None:
+            return int(row[0])
         return 0
+
     except sqlite3.Error as e:
         print(f"⚠️ Database State Experience Check Error: {e}")
         return 0
