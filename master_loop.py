@@ -156,7 +156,7 @@ async def evaluate_precooling():
 
 def get_current_block_name():
     """Maps the current hour to a granular block."""
-    hour = datetime.now().hour
+    hour: int = datetime.now().hour
 
     if 0 <= hour < 5:
         return "Overnight"
@@ -346,7 +346,7 @@ async def master_clock():
                     # THE ABORT RAIL: Stop venting if the air is clean OR if it just got too hot outside
                     if all_clean or f_temp >= config.AQ_MAX_OUTDOOR_TEMP:
                         if f_temp >= config.AQ_MAX_OUTDOOR_TEMP and not all_clean:
-                            print(f"🔥 Aborting vent: Outdoor temp"
+                            print(f"🔥 Aborting vent: Outfdoor temp"
                             f"hit {f_temp}°F!"
                             f" Closing fan to protect thermals.")
                         else:
@@ -633,14 +633,18 @@ async def master_clock():
                         temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
 
                         # Find out what the AI thinks of 'Normal' right now
-                        conn = sqlite3.connect(config.DB_PATH)
-                        cursor = conn.cursor()
-                        cursor.execute('''
-                            SELECT q_score FROM q_table
-                            WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ? AND action_taken = 'Normal'
-                        ''', (current_block, temp_band, humid_band, is_peak))
-                        row = cursor.fetchone()
-                        conn.close()
+                        try:
+                            with sqlite3.connect(config.DB_PATH) as conn:
+                                cursor = conn.cursor()
+                                cursor.execute('''
+                                    SELECT q_score FROM q_table
+                                    WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ? AND action_taken = 'Normal'
+                                ''', (current_block, temp_band, humid_band, is_peak))
+                                row = cursor.fetchone()
+                        except sqlite3.Error as e:
+                            print("Error reading current 'Normal'"
+                                f"from q_table: {e}"
+                            )
 
                         if row and len(row) > 0:
                             ai_score_normal = row[0]
@@ -720,11 +724,17 @@ async def master_clock():
                 is_peak = current_block == "Peak Hours"
                 had_venting = state.APP_STATE.get("block_had_aq_venting", False)
 
+                if current_overrides == 1:
+                    venting_msg = True
+                else:
+                    venting_msg = False
+
                 snapshot_reward = rl_agent.calculate_reward(
                     current_overrides,
                     kwh_used=max(0, running_kwh),
                     is_peak_pricing=is_peak,
-                    block_had_aq_venting=had_venting
+                    block_had_aq_venting=had_venting,
+                    venting_msg=venting_msg
                 )
 
                 state.APP_STATE["last_f_temp"] = f_temp
