@@ -24,7 +24,10 @@ def calculate_reward(
         else:
             reward -= (20 * user_overrides)
 
-    cost_multiplier = 4.0 if is_peak_pricing else 2.5
+    cost_multiplier = config.PEAK_MULTIPLIER if is_peak_pricing else config.PEAK_MULTIPLIER_OFFPEAK
+    # pylint: disable=pointless-string-statement
+    """The cost penalty is scaled by the amount of energy used and whether it was during peak pricing."""
+
     cost_penalty = kwh_used * cost_multiplier
     reward -= cost_penalty
     return reward

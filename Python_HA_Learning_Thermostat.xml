@@ -31,8 +31,11 @@
   <Config Name="Thermostat Upper Bound Safety Constraint" Target="SAFETY_MAX" Default="78.0" Description="Absolute thermal ceiling restrictions allocated to system policies." Type="Variable" Display="always" Required="true" Mask="false"/>
 
   <Config Name="Toggle Air Quality Logic Processing" Target="ENABLE_AQ_FEATURE" Default="True" Description="Sets automated state checking sequences and alternate error handling policies." Type="Variable" Display="always" Required="true" Mask="false"/>
-  <Config Name="Ventilation Mechanical Actuator Switch ID" Target="FAN_ENTITY_ID" Default="switch.your_swamp_cooler_switch" Description="Home Assistant asset targeted during automated override clearing sequences." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Ventilation Mechanical Actuator Switch ID" Target="FAN_ENTITY_ID" Default="switch.fan_for_injecting_air_into_house" Description="Home Assistant asset targeted during automated override clearing sequences." Type="Variable" Display="always" Required="true" Mask="false"/>
   <Config Name="Ventilation Temperature Safety Limit" Target="AQ_MAX_OUTDOOR_TEMP" Default="90.0" Description="Maximum outdoor temperature threshold for allowing ventilation cycles to engage." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+
+  <Config Name="Peak Pricing Multiplier" Target="PEAK_MULTIPLIER" Default="4.0" Description="Cost multiplier applied during peak electricity pricing periods." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Off-Peak Pricing Multiplier" Target="PEAK_MULTIPLIER_OFFPEAK" Default="2.5" Description="Cost multiplier applied during off-peak electricity pricing periods." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <Config Name="VOC Metric Collection Path" Target="AQ_VOC_SENSOR" Default="sensor.sens55_voc_index" Description="Index identifier targeting specific organic data streams." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="VOC Volatile Limit Threshold" Target="AQ_VOC_THRESHOLD" Default="150.0" Description="Limit constraint mapping triggering penalty minimization loops." Type="Variable" Display="advanced" Required="false" Mask="false"/>
