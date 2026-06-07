@@ -11,8 +11,7 @@ def calculate_reward(
     user_overrides: int,
     kwh_used: float,
     is_peak_pricing: bool,
-    block_had_aq_venting: bool = False,
-    venting_msg: bool = False
+    block_had_aq_venting: bool = False
 ):
     """Calculates the success score with AQ forgiveness logic."""
     reward = 0
@@ -22,8 +21,6 @@ def calculate_reward(
     else:
         if config.ENABLE_AQ_FEATURE and block_had_aq_venting:
             reward -= (2 * user_overrides)
-            if venting_msg is True:
-                print("🍃 Reward Note: Override penalty minimized due to venting.")
         else:
             reward -= (20 * user_overrides)
 

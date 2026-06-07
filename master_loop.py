@@ -724,17 +724,11 @@ async def master_clock():
                 is_peak = current_block == "Peak Hours"
                 had_venting = state.APP_STATE.get("block_had_aq_venting", False)
 
-                if current_overrides == 1:
-                    venting_msg = True
-                else:
-                    venting_msg = False
-
                 snapshot_reward = rl_agent.calculate_reward(
                     current_overrides,
                     kwh_used=max(0, running_kwh),
                     is_peak_pricing=is_peak,
-                    block_had_aq_venting=had_venting,
-                    venting_msg=venting_msg
+                    block_had_aq_venting=had_venting
                 )
 
                 state.APP_STATE["last_f_temp"] = f_temp
