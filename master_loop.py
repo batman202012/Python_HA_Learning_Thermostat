@@ -20,25 +20,6 @@ def get_override_count():
     state.APP_STATE["user_override_count"] = 0
     return current_count
 
-def sync_ha_to_schedule(new_temp: float):
-    """Updates the baseline schedule when a manual change is made in HA."""
-    current_block = state.APP_STATE.get("active_block", "Mid-Day")
-
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO schedule (time_block, target_temp)
-        VALUES (?, ?)
-        ON CONFLICT(time_block) DO UPDATE SET target_temp = excluded.target_temp
-    ''', (current_block, new_temp))
-    conn.commit()
-    conn.close()
-
-    state.APP_STATE["locked_target"] = new_temp
-    state.APP_STATE["locked_action"] = "Manual/Baseline"
-
-    print(f"  Memory Synced: AI will now maintain {new_temp} F for the rest of this block.")
-
 async def handle_thermostat_change(state_data):
     """Parses HA state changes and strictly identifies manual overrides."""
     new_state = state_data.get("new_state")
@@ -91,8 +72,6 @@ async def handle_thermostat_change(state_data):
                     live_penalty
                 )
 
-        # 3. Sync to DB and Memory
-        sync_ha_to_schedule(new_temp)
     else:
         # This was an AI-driven change, so we ignore it for the override counter
         if config.DEBUG_MODE_ENV is True:
