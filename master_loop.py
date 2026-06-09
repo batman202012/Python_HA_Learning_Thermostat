@@ -43,6 +43,7 @@ async def handle_thermostat_change(state_data):
         print(f"🚨 MANUAL OVERRIDE DETECTED: House set to {new_temp}°F")
         state.APP_STATE["is_manual_override"] = True
         state.APP_STATE["expected_target_temp"] = new_temp
+        state.APP_STATE["locked_target"] = float(new_temp)
         current_ai_action = state.APP_STATE.get("locked_action")
         state.APP_STATE["user_override_count"] += 1
 
@@ -54,6 +55,7 @@ async def handle_thermostat_change(state_data):
             else:
                 live_penalty = -20.0
                 print(f"  WRIST SLAP: Applying a -20.0 penalty to AI strategy '{current_ai_action}'.")
+            state.APP_STATE["locked_action"] = "Manual/Baseline"
 
             time_block = state.APP_STATE.get("active_block", "Mid-Day")
             is_peak = 1 if time_block == "Peak Hours" else 0
