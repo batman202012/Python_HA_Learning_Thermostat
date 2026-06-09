@@ -390,6 +390,8 @@ async def master_clock():
 
                 # 1. First, handle database recovery if it's a reboot
                 is_recovery_successful = False
+                stranded_block_recovered = False
+
                 if is_startup:
                     db_active_block = database.get_session_state("active_block")
                     if db_active_block == current_block:
@@ -418,11 +420,41 @@ async def master_clock():
                         ) or "20-25%"
 
                         is_recovery_successful = True
+
+                    elif db_active_block is not None:
+                        print(f"⚠️ Offline across transition! Rescuing '{db_active_block}' for grading.")
+                        state.APP_STATE["active_block"] = db_active_block
+                        state.APP_STATE["start_kwh"] = float(database.get_session_state("start_kwh") or current_kwh)
+
+                        stored_time = database.get_session_state("block_start_time")
+                        if stored_time:
+                            state.APP_STATE["block_start_time"] = datetime.fromisoformat(stored_time)
+
+                        stored_overrides = database.get_session_state("current_overrides")
+                        if stored_overrides:
+                            state.APP_STATE["user_override_count"] = int(stored_overrides)
+
+                        stored_is_manual = database.get_session_state("is_manual_override")
+                        if stored_is_manual:
+                            state.APP_STATE["is_manual_override"] = stored_is_manual == "True"
+
+                        state.APP_STATE["minutes_at_target"] = float(database.get_session_state("minutes_at_target") or 0.0)
+
+                        last_state = database.get_last_known_state()
+                        if last_state:
+                            state.APP_STATE["locked_action"] = last_state["action_taken"]
+
+                        state.APP_STATE["current_band"] = (
+                            database.get_session_state("last_written_temp") or "<75",
+                            database.get_session_state("last_written_humid") or "20-25%"
+                        )
+                        stranded_block_recovered = True
+
                     else:
                         print(f"🆕 System start: No matching session found. Starting fresh for {current_block}.")
 
                 # 2. Process delayed grading if a block JUST finished
-                if is_new_block and not is_startup:
+                if (is_new_block and not is_startup) or stranded_block_recovered:
                     print(f"🚀 Transitioning to {current_block}")
                     finished_block = state.APP_STATE["active_block"]
                     is_peak = finished_block == "Peak Hours"
