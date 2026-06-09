@@ -16,8 +16,9 @@ import rl_agent
 
 def get_override_count():
     """Returns the current override count and resets it for the next cycle."""
-    current_count = state.APP_STATE["user_override_count"]
+    current_count = state.APP_STATE.get("user_override_count", 0)
     state.APP_STATE["user_override_count"] = 0
+    database.save_session_state("user_override_count", "0")
     return current_count
 
 async def handle_thermostat_change(state_data):
@@ -46,6 +47,7 @@ async def handle_thermostat_change(state_data):
         state.APP_STATE["locked_target"] = float(new_temp)
         current_ai_action = state.APP_STATE.get("locked_action")
         state.APP_STATE["user_override_count"] += 1
+        database.save_session_state("user_override_count", str(state.APP_STATE["user_override_count"]))
 
         # Add a check to ensure we only penalize actual AI strategies
         if current_ai_action != "Manual/Baseline":
@@ -572,6 +574,10 @@ async def master_clock():
                         print(f"⚠️ Data format error fetching live target, using default: {e}")
 
                     last_state = database.get_last_known_state()
+                    db_override_count = database.get_session_state("user_override_count")
+                    if db_override_count:
+                        state.APP_STATE["user_override_count"] = int(db_override_count)
+
                     if is_recovery_successful and last_state:
                         if abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
                             print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']}")
