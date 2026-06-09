@@ -4,6 +4,8 @@ Handles scheduling, Home Assistant integration, and Reinforcement Learning.
 """
 
 import os
+import signal
+import subprocess
 import sys
 import sqlite3
 import asyncio
@@ -210,16 +212,30 @@ def get_terminal_logs():
     return {"logs": "\n".join(terminal_buffer)}
 
 
+def is_docker():
+    """Checks if the application is currently running inside a Docker container."""
+    return os.path.exists('/.dockerenv')
+
 @app.post("/api/restart")
-async def restart_system():
-    """Triggers a clean shutdown of the process for container restart."""
+async def restart_service():
+    """Triggers a restart depending on the environment (Docker vs Systemd)."""
     print("🔄 Restart command received from UI. Rebooting system...")
 
-    # 1. Gracefully shut down background tasks
-    # (Assuming you have a cleanup routine as noted in your logs)
+    async def perform_restart():
+        # Give the web response time to reach the browser before killing the process
+        await asyncio.sleep(1)
 
-    # 2. Instead of calling 'sudo', we trigger a process exit.
-    # If you are running in Docker, your orchestrator (Unraid/Docker)
-    # should have restart_policy: unless-stopped set.
-    os.kill(os.getpid(), 9)
-    return {"status": "rebooting"}
+        if is_docker():
+            print("🐳 Docker environment detected. Terminating process...")
+            # Kill the process. Docker's restart policy will automatically spin it back up!
+            os.kill(os.getpid(), signal.SIGTERM)
+        else:
+            print("🖥️ Native Linux environment detected. Executing systemctl restart...")
+            # Fallback to the standard service restart
+            cmd = "sudo /usr/bin/systemctl restart thermostat.service"
+            subprocess.Popen(cmd, shell=True)
+
+    # Run the restart sequence as a background task so the API responds immediately
+    asyncio.create_task(perform_restart())
+
+    return {"message": "Restarting system... Dashboard will reconnect shortly."}

@@ -442,7 +442,9 @@ async def master_clock():
                         if stored_is_manual:
                             state.APP_STATE["is_manual_override"] = stored_is_manual == "True"
 
-                        state.APP_STATE["minutes_at_target"] = float(database.get_session_state("minutes_at_target") or 0.0)
+                        state.APP_STATE["minutes_at_target"] = float(
+                                                            database.get_session_state("minutes_at_target") or 0.0
+                                                        )
 
                         last_state = database.get_last_known_state()
                         if last_state:
