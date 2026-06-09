@@ -226,9 +226,9 @@ async def restart_service():
         await asyncio.sleep(1)
 
         if is_docker():
-            print("🐳 Docker environment detected. Terminating process...")
-            # Kill the process. Docker's restart policy will automatically spin it back up!
-            os.kill(os.getpid(), signal.SIGTERM)
+            print("🐳 Docker environment detected. Forcing process crash to trigger reboot...")
+            # Force an abrupt exit (Exit Code 1) so Unraid/Docker instantly reboots it
+            os._exit(1)
         else:
             print("🖥️ Native Linux environment detected. Executing systemctl restart...")
             # Fallback to the standard service restart
