@@ -123,7 +123,10 @@ def get_best_q_action(time_block: str, forecast_temp: float, forecast_humidity: 
             q_scores[action] = 0.0
 
     if config.DEBUG_MODE_ENV is True:
-        print(f"🔍 DEBUG X-RAY: Found in DB -> {q_scores}")
+        print(f"🔍 DEBUG X-RAY:"
+                f"Looking up Q-scores for state -> Time: {time_block}, Temp Band: {temp_band}, Humidity Band: {humidity_band}, Peak Pricing: {is_peak_pricing}"
+                f"Found in DB -> {q_scores}"
+            )
 
     # Calculate a decaying exploration rate based on total state visits
     base_epsilon = 0.20
