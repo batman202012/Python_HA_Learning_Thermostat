@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+#Install git for fetching updates
+    RUN apt-get install -y git
+
 # Copy dependencies first
 COPY requirements.txt /app/
 

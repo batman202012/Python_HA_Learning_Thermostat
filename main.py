@@ -227,8 +227,17 @@ async def restart_service():
 
         if is_docker():
             print("🐳 Docker environment detected. Performing in-place hot reload...")
-            # Instantly swap the current Python process with a fresh boot of itself.
-            # The container never stops, but the application entirely restarts!
+            # 1. Attempt to pull latest updates from GitHub
+            try:
+                print("📥 Pulling latest code from repository...")
+                result = subprocess.run(["git", "pull"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                print(f"✅ Update successful: {result.stdout.decode('utf-8').strip()}")
+            except FileNotFoundError:
+                print("⚠️ 'git' is not installed inside this Docker container. Skipping update.")
+            except subprocess.CalledProcessError as e:
+                print(f"⚠️ Git pull failed (No internet or merge conflict): {e.stderr.decode('utf-8').strip()}")
+
+            # 2. Instantly swap the current Python process with the newly downloaded code!
             os.execv(sys.executable, [sys.executable] + sys.argv)
         else:
             print("🖥️ Native Linux environment detected. Executing systemctl restart...")
