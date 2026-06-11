@@ -141,8 +141,10 @@ def get_current_block_name():
     """Maps the current hour to a granular block."""
     hour: int = datetime.now().hour
 
-    if 0 <= hour < 5:
+    if 0 <= hour < 3:
         return "Overnight"
+    if 3 <= hour <5:
+        return "Pre-Dawn"
     if 5 <= hour < 8:
         return "Early Morning"
     if 8 <= hour < 10:
@@ -608,7 +610,7 @@ async def master_clock():
 
                     try:
                         # Only check the future during morning/night prep blocks
-                        if current_block in ["Overnight", "Early Morning", "Late Morning"]:
+                        if current_block in ["Overnight", "Pre-Dawn", "Early Morning", "Late Morning"]:
                             forecast_rec, peak_temp = await evaluate_precooling()
                     except (KeyError, IndexError, TypeError, ValueError) as e:
                         print(f"⚠️ Advisor JSON/Data Error: {e}")

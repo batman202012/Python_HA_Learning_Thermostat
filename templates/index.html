@@ -395,7 +395,7 @@ function populateDropdowns() {
         }
 
         const activeTimeBlocks = [
-            "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
+            "Overnight", "Pre-Dawn", "Early Morning", "Late Morning", "Mid-Day", 
             "Early Afternoon", "Late Afternoon", "Peak Hours", "Evening", 
             "Late Night"
         ];
@@ -497,7 +497,8 @@ function populateDropdowns() {
                 <div class="form-group">
                     <label>Time Block</label>
                     <select id="timeBlock">
-                        <option value="Overnight">Overnight (12am-5am)</option>
+                        <option value="Overnight">Overnight (12am-3am)</option>
+                        <option value="Pre-Dawn">Pre-Dawn (3am-5am)</option>
                         <option value="Early Morning">Early Morning (5am-8am)</option>
                         <option value="Late Morning">Late Morning (8am-10am)</option>
                         <option value="Mid-Day">Mid-Day (10am-12pm)</option>
@@ -616,6 +617,7 @@ function populateDropdowns() {
         function updateChart(historyData) {
             const blockColors = {
                 "Overnight": "rgba(30, 58, 138, 0.15)",
+                "Pre-Dawn": "rgba(45, 90, 180, 0.15)",
                 "Early Morning": "rgba(59, 130, 246, 0.15)",
                 "Late Morning": "rgba(14, 165, 233, 0.15)",
                 "Mid-Day": "rgba(234, 179, 8, 0.15)",
