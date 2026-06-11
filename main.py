@@ -4,7 +4,6 @@ Handles scheduling, Home Assistant integration, and Reinforcement Learning.
 """
 
 import os
-import signal
 import subprocess
 import sys
 import sqlite3
