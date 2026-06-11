@@ -188,6 +188,20 @@ async def get_q_table():
         print(f"⚠️ Database Error in /api/q_table: {e}")
         return {"data": []}
 
+@app.get("/api/current_state")
+async def get_current_state():
+    """Fetches the active weather band for the current block from RAM."""
+    current_band = state.APP_STATE.get("current_band")
+    
+    # current_band is typically stored as a tuple: (temp_band, humid_band)
+    if current_band and len(current_band) >= 2:
+        return {
+            "temp_band": current_band[0],
+            "humid_band": current_band[1]
+        }
+        
+    return {"temp_band": None, "humid_band": None}
+
 @app.get("/api/history")
 async def get_history():
     """Fetches the recent execution history."""

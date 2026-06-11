@@ -252,6 +252,47 @@ function populateDropdowns() {
         }
     }
 
+    async function jumpToCurrent() {
+        try {
+            // Fetch the active state from volatile memory
+            const response = await fetch('/api/current_state');
+            const result = await response.json();
+            
+            if (result.temp_band && result.humid_band) {
+                const tempSelect = document.getElementById('temp-filter');
+                const humidSelect = document.getElementById('humid-filter');
+                let uiChanged = false;
+
+                // Safely update Temp dropdown
+                if (Array.from(tempSelect.options).some(opt => opt.value === result.temp_band)) {
+                    tempSelect.value = result.temp_band;
+                    sessionStorage.setItem("thermostat_temp_selection", result.temp_band);
+                    uiChanged = true;
+                } else {
+                    console.warn("Live Temp band not found in UI options:", result.temp_band);
+                }
+
+                // Safely update Humid dropdown
+                if (Array.from(humidSelect.options).some(opt => opt.value === result.humid_band)) {
+                    humidSelect.value = result.humid_band;
+                    sessionStorage.setItem("thermostat_humid_selection", result.humid_band);
+                    uiChanged = true;
+                } else {
+                    console.warn("Live Humid band not found in UI options:", result.humid_band);
+                }
+
+                // Render the matrix if changes were successfully applied
+                if (uiChanged) {
+                    renderFilteredMatrix();
+                }
+            } else {
+                console.warn("Active block state is not available yet (System might be booting).");
+            }
+        } catch (error) {
+            console.error("Failed to fetch live state:", error);
+        }
+    }
+
     function jumpToLastGraded() {
         const fallbackDiv = document.getElementById('fallback-defaults');
         const defaultTemp = fallbackDiv ? fallbackDiv.getAttribute('data-temp') : null;
@@ -504,8 +545,11 @@ function populateDropdowns() {
                         <option value="true">🔥 Peak Pricing</option>
                     </select>
                 </div>
-                <div class="filter-group" style="justify-content: flex-end;">
-                    <button onclick="jumpToLastGraded()" style="margin-top: auto; padding: 8px 12px; font-size: 0.85em; background-color: var(--border); border: 1px solid var(--accent); color: var(--accent);">
+                <div class="filter-group" style="justify-content: flex-end; flex-direction: row; gap: 10px; align-items: flex-end;">
+                    <button onclick="jumpToCurrent()" style="padding: 8px 12px; font-size: 0.85em; background-color: var(--border); border: 1px solid var(--success); color: var(--success);">
+                        ⚡ Jump to Current
+                    </button>
+                    <button onclick="jumpToLastGraded()" style="padding: 8px 12px; font-size: 0.85em; background-color: var(--border); border: 1px solid var(--accent); color: var(--accent);">
                         🎯 Jump to Last
                     </button>
                 </div>
