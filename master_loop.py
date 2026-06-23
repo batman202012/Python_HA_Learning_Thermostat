@@ -409,7 +409,7 @@ async def master_clock():
                         if stored_time:
                             state.APP_STATE["block_start_time"] = datetime.fromisoformat(stored_time)
 
-                        stored_overrides = database.get_session_state("current_overrides")
+                        stored_overrides = database.get_session_state("user_override_count")
                         if stored_overrides:
                             state.APP_STATE["user_override_count"] = int(stored_overrides)
                         stored_is_manual = database.get_session_state("is_manual_override")
@@ -436,7 +436,7 @@ async def master_clock():
                         if stored_time:
                             state.APP_STATE["block_start_time"] = datetime.fromisoformat(stored_time)
 
-                        stored_overrides = database.get_session_state("current_overrides")
+                        stored_overrides = database.get_session_state("user_override_count")
                         if stored_overrides:
                             state.APP_STATE["user_override_count"] = int(stored_overrides)
 
@@ -741,7 +741,7 @@ async def master_clock():
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 if current_overrides:
-                    database.save_session_state("current_overrides", "0")
+                    database.save_session_state("user_override_count", "0")
                 if state.APP_STATE.get("is_manual_override", False):
                     database.save_session_state("is_manual_override", "False")
                 is_peak = current_block == "Peak Hours"
