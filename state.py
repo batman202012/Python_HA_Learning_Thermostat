@@ -12,7 +12,7 @@ def save_waiting_room(pending_data):
     try:
         with open(WAITING_ROOM_FILE, "w", encoding="utf-8") as f:
             json.dump(pending_data, f)
-    except Exception as e:
+    except (OSError, TypeError, ValueError) as e:
         print(f"⚠️ Failed to save waiting room: {e}")
 
 def load_waiting_room():
@@ -21,17 +21,16 @@ def load_waiting_room():
         try:
             with open(WAITING_ROOM_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(f"⚠️ Waiting room corrupted or empty: {e}")
-    return None
 
 def clear_waiting_room():
     """Deletes the waiting room file so we don't accidentally double-grade it."""
     if os.path.exists(WAITING_ROOM_FILE):
         try:
             os.remove(WAITING_ROOM_FILE)
-        except Exception:
-            pass
+        except OSError as e:
+            print(f"⚠️ Failed to delete waiting room file: {e}")
 
 APP_STATE = {
     "expected_target_temp": None,
@@ -40,7 +39,7 @@ APP_STATE = {
     "last_evaluated_minute": -1,
     "last_grade_run": None,
     "block_start_time": None,
-    "target_reached_time": None,
+    "minutes_at_target": 0.0,
     "active_block": None,      # Tracks which time block we are in
     "locked_action": None,     # The decision we are sticking with
     "locked_target": None,     # The temperature we are maintaining

@@ -4,6 +4,7 @@ Handles scheduling, Home Assistant integration, and Reinforcement Learning.
 """
 
 import os
+import subprocess
 import sys
 import sqlite3
 import asyncio
@@ -71,7 +72,8 @@ class ConsoleInterceptor:
 
 # Load the hidden variables from the .env file
 load_dotenv()
-print(f"📂 Database localized to: {config.DB_PATH}")
+if config.DEBUG_MODE_ENV is True:
+    print(f"📂 Database localized to: {config.DB_PATH}")
 
 
 # --- FASTAPI SETUP ---
@@ -109,17 +111,16 @@ async def dashboard(request: Request):
     # 2. If state is empty (e.g., on a fresh restart), pull the LAST written block from memory
     if not default_temp or not default_humid:
         try:
-            conn = sqlite3.connect(config.DB_PATH)
-            cursor = conn.cursor()
-            # Grab the most recent state added to the AI's Q-Table memory
-            cursor.execute('''
-                SELECT temp_band, humidity_band 
-                FROM q_table 
-                ORDER BY id DESC 
-                LIMIT 1
-            ''')
-            row = cursor.fetchone()
-            conn.close()
+            with sqlite3.connect(config.DB_PATH) as conn:
+                cursor = conn.cursor()
+                # Grab the most recent state added to the AI's Q-Table memory
+                cursor.execute('''
+                    SELECT temp_band, humidity_band 
+                    FROM q_table 
+                    ORDER BY id DESC 
+                    LIMIT 1
+                ''')
+                row = cursor.fetchone()
 
             if row:
                 default_temp = row[0]
@@ -128,7 +129,8 @@ async def dashboard(request: Request):
                 # Absolute fallback only if the database is 100% completely empty
                 default_temp = "<75"
                 default_humid = "20-25%"
-        except Exception as e:
+
+        except sqlite3.Error as e:
             print(f"Error fetching fallback Q-table default: {e}")
             default_temp = "<75"
             default_humid = "20-25%"
@@ -148,49 +150,74 @@ async def dashboard(request: Request):
 @app.post("/api/schedule")
 async def update_schedule(time_block: str, target_temp: float):
     """API Endpoint to manually update the cooling schedule."""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
 
-    cursor.execute('''
-        INSERT INTO schedule (time_block, target_temp)
-        VALUES (?, ?)
-        ON CONFLICT(time_block) DO UPDATE SET target_temp = excluded.target_temp
-    ''', (time_block, target_temp))
+            cursor.execute('''
+                INSERT INTO schedule (time_block, target_temp)
+                VALUES (?, ?)
+                ON CONFLICT(time_block) DO UPDATE SET target_temp = excluded.target_temp
+            ''', (time_block, target_temp))
 
-    conn.commit()
-    conn.close()
+            conn.commit()
 
-    print(f"💾 Schedule saved: {time_block} set to {target_temp}°F")
-    return {"status": "success"}
+        if config.DEBUG_MODE_ENV is True:
+            print(f"💾 Schedule saved: {time_block} set to {target_temp}°F")
+        return {"status": "success"}
+
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Error (update_schedule): {e}")
+        return {"status": "error", "message": "Failed to update schedule."}
 
 
 @app.get("/api/q_table")
 async def get_q_table():
     """Fetches the current learned scores."""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT time_block, temp_band, humidity_band,"
-                   " is_peak_pricing, action_taken, q_score"
-                   " FROM q_table ORDER BY q_score DESC")
-    columns = [column[0] for column in cursor.description]
-    results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    conn.close()
-    return {"data": results}
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT time_block, temp_band, humidity_band,"
+                        " is_peak_pricing, action_taken, q_score"
+                        " FROM q_table ORDER BY q_score DESC")
+            columns = [column[0] for column in cursor.description]
+            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return {"data": results}
 
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Error in /api/q_table: {e}")
+        return {"data": []}
+
+@app.get("/api/current_state")
+async def get_current_state():
+    """Fetches the active weather band for the current block from RAM."""
+    current_band = state.APP_STATE.get("current_band")
+
+    # current_band is typically stored as a tuple: (temp_band, humid_band)
+    if current_band and len(current_band) >= 2:
+        return {
+            "temp_band": current_band[0],
+            "humid_band": current_band[1]
+        }
+
+    return {"temp_band": None, "humid_band": None}
 
 @app.get("/api/history")
 async def get_history():
     """Fetches the recent execution history."""
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT date_time, time_block, actual_temp,"
-                   " target_temp, actual_humidity, action_taken, user_overrides,"
-                   " reward_granted FROM history_log ORDER BY id DESC LIMIT 700")
-    columns = [column[0] for column in cursor.description]
-    results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    conn.close()
-    return {"data": results}
+    try:
+        with sqlite3.connect(config.DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT date_time, time_block, actual_temp,"
+                        " target_temp, actual_humidity, action_taken, user_overrides,"
+                        " reward_granted FROM history_log ORDER BY id DESC LIMIT 700")
+            columns = [column[0] for column in cursor.description]
+            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return {"data": results}
 
+    except sqlite3.Error as e:
+        print(f"⚠️ Database Error in /api/history: {e}")
+        return {"data": []}
 
 @app.get("/api/logs")
 def get_terminal_logs():
@@ -198,16 +225,40 @@ def get_terminal_logs():
     return {"logs": "\n".join(terminal_buffer)}
 
 
+def is_docker():
+    """Checks if the application is currently running inside a Docker container."""
+    return os.path.exists('/.dockerenv')
+
 @app.post("/api/restart")
-async def restart_system():
-    """Triggers a clean shutdown of the process for container restart."""
+async def restart_service():
+    """Triggers a restart depending on the environment (Docker vs Systemd)."""
     print("🔄 Restart command received from UI. Rebooting system...")
 
-    # 1. Gracefully shut down background tasks
-    # (Assuming you have a cleanup routine as noted in your logs)
+    async def perform_restart():
+        # Give the web response time to reach the browser before killing the process
+        await asyncio.sleep(1)
 
-    # 2. Instead of calling 'sudo', we trigger a process exit.
-    # If you are running in Docker, your orchestrator (Unraid/Docker)
-    # should have restart_policy: unless-stopped set.
-    os.kill(os.getpid(), 9)
-    return {"status": "rebooting"}
+        if is_docker():
+            print("🐳 Docker environment detected. Performing in-place hot reload...")
+            # 1. Attempt to pull latest updates from GitHub
+            try:
+                print("📥 Pulling latest code from repository...")
+                result = subprocess.run(["git", "pull"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                print(f"✅ Update successful: {result.stdout.decode('utf-8').strip()}")
+            except FileNotFoundError:
+                print("⚠️ 'git' is not installed inside this Docker container. Skipping update.")
+            except subprocess.CalledProcessError as e:
+                print(f"⚠️ Git pull failed (No internet or merge conflict): {e.stderr.decode('utf-8').strip()}")
+
+            # 2. Instantly swap the current Python process with the newly downloaded code!
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        else:
+            print("🖥️ Native Linux environment detected. Executing systemctl restart...")
+            # Fallback to the standard service restart
+            cmd = "sudo /usr/bin/systemctl restart thermostat.service"
+            subprocess.Popen(cmd, shell=True)
+
+    # Run the restart sequence as a background task so the API responds immediately
+    asyncio.create_task(perform_restart())
+
+    return {"message": "Restarting system... Dashboard will reconnect shortly."}

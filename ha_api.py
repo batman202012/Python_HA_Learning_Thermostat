@@ -43,7 +43,7 @@ async def trigger_cooling(target_temp: float):
             json=payload
         )
         return response.status_code
-    except Exception as e:
+    except httpx.RequestError as e:
         print(f"⚠️ HA API Error (trigger_cooling): {e}")
         return None
 
@@ -56,7 +56,7 @@ async def get_sensor_state(entity_id: str):
 
     try:
         response = await _client.get(
-            f"{config.HA_URL_STATE}{entity_id}", 
+            f"{config.HA_URL_STATE}{entity_id}",
             headers=headers
         )
         if response.status_code == 200:
@@ -71,7 +71,7 @@ async def get_sensor_state(entity_id: str):
             except (ValueError, TypeError):
                 return None
         return None
-    except Exception as e:
+    except httpx.RequestError as e:
         # Log network connection dropouts without crashing the loop
         print(f"⚠️ Network error fetching sensor {entity_id}: {e}")
         return None
@@ -95,7 +95,7 @@ async def get_current_indoor_temp() -> float:
 
                 if current_temp is not None:
                     return float(current_temp)
-    except Exception as e:
+    except httpx.RequestError as e:
         print(f"⚠️ API Error: {e}")
     return None
 
@@ -111,7 +111,8 @@ async def get_afternoon_forecast():
         "type": "hourly"
     }
 
-    print("📡 Requesting forecast from weather.forecast_home...")
+    if config.DEBUG_MODE_ENV is True:
+        print(f"📡 Requesting forecast from {config.MET_IO_FORCAST}...")
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -127,17 +128,19 @@ async def get_afternoon_forecast():
                     entity_forecast = service_output.get(config.MET_IO_FORCAST, {})
                     forecasts = entity_forecast.get("forecast", [])
                     if forecasts:
-                        print(f"✅ Success! Parsed {len(forecasts)} forecast points from service_response.")
+                        if config.DEBUG_MODE_ENV is True:
+                            print(f"✅ Success! Parsed {len(forecasts)} forecast points from service_response.")
                     else:
                         if isinstance(service_output, list):
                             forecasts = service_output
-                            print(f"✅ Parsed {len(forecasts)} points from flat list.")
+                            if config.DEBUG_MODE_ENV is True:
+                                print(f"✅ Parsed {len(forecasts)} points from flat list.")
                         else:
                             print(f"⚠️ Keys in service_response: {list(service_output.keys())}")
                     return forecasts
                 print(f"⚠️ Forecast Attempt {attempt+1} failed: {response.status_code}")
                 await asyncio.sleep(2)
-        except Exception as e:
+        except httpx.RequestError as e:
             print(f"⚠️ Forecast Connection Attempt {attempt+1} failed: {e}")
             await asyncio.sleep(2)
     return []
@@ -187,8 +190,11 @@ async def listen_to_ha():
             print("Connection lost. Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
         # pylint: disable=broad-exception-caught
-        except Exception as e:
-            print(f"WebSocket Error: {e}")
+        except websockets.exceptions.WebSocketException as e:
+            print(f"WebSocket Protocol Error: {e}")
+            await asyncio.sleep(5)
+        except OSError as e:
+            print(f"Network Error (HA unreachable): {e}")
             await asyncio.sleep(5)
 
 async def set_fan(turn_on: bool):
@@ -217,7 +223,7 @@ async def set_fan(turn_on: bool):
             response = await client.post(url, headers=headers, json=payload)
             if response.status_code != 200:
                 print(f"⚠️ Swamp cooler service call failed: {response.text}")
-        except Exception as e:
+        except httpx.RequestError as e:
             print(f"⚠️ Failed to toggle swamp cooler via API: {e}")
 
 

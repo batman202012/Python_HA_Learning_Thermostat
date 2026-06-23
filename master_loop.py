@@ -16,28 +16,10 @@ import rl_agent
 
 def get_override_count():
     """Returns the current override count and resets it for the next cycle."""
-    current_count = state.APP_STATE["user_override_count"]
+    current_count = state.APP_STATE.get("user_override_count", 0)
     state.APP_STATE["user_override_count"] = 0
+    database.save_session_state("user_override_count", "0")
     return current_count
-
-def sync_ha_to_schedule(new_temp: float):
-    """Updates the baseline schedule when a manual change is made in HA."""
-    current_block = state.APP_STATE.get("active_block", "Mid-Day")
-
-    conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO schedule (time_block, target_temp)
-        VALUES (?, ?)
-        ON CONFLICT(time_block) DO UPDATE SET target_temp = excluded.target_temp
-    ''', (current_block, new_temp))
-    conn.commit()
-    conn.close()
-
-    state.APP_STATE["locked_target"] = new_temp
-    state.APP_STATE["locked_action"] = "Manual/Baseline"
-
-    print(f"  Memory Synced: AI will now maintain {new_temp} F for the rest of this block.")
 
 async def handle_thermostat_change(state_data):
     """Parses HA state changes and strictly identifies manual overrides."""
@@ -62,8 +44,10 @@ async def handle_thermostat_change(state_data):
         print(f"🚨 MANUAL OVERRIDE DETECTED: House set to {new_temp}°F")
         state.APP_STATE["is_manual_override"] = True
         state.APP_STATE["expected_target_temp"] = new_temp
+        state.APP_STATE["locked_target"] = float(new_temp)
         current_ai_action = state.APP_STATE.get("locked_action")
         state.APP_STATE["user_override_count"] += 1
+        database.save_session_state("user_override_count", str(state.APP_STATE["user_override_count"]))
 
         # Add a check to ensure we only penalize actual AI strategies
         if current_ai_action != "Manual/Baseline":
@@ -73,6 +57,7 @@ async def handle_thermostat_change(state_data):
             else:
                 live_penalty = -20.0
                 print(f"  WRIST SLAP: Applying a -20.0 penalty to AI strategy '{current_ai_action}'.")
+            state.APP_STATE["locked_action"] = "Manual/Baseline"
 
             time_block = state.APP_STATE.get("active_block", "Mid-Day")
             is_peak = 1 if time_block == "Peak Hours" else 0
@@ -91,11 +76,10 @@ async def handle_thermostat_change(state_data):
                     live_penalty
                 )
 
-        # 3. Sync to DB and Memory
-        sync_ha_to_schedule(new_temp)
     else:
         # This was an AI-driven change, so we ignore it for the override counter
-        print(f"✅ Automated change to {new_temp}°F confirmed.")
+        if config.DEBUG_MODE_ENV is True:
+            print(f"✅ Automated change to {new_temp}°F confirmed.")
 
 async def evaluate_precooling():
     """Analyzes forecast with UTC-to-Local conversion."""
@@ -155,10 +139,12 @@ async def evaluate_precooling():
 
 def get_current_block_name():
     """Maps the current hour to a granular block."""
-    hour = datetime.now().hour
+    hour: int = datetime.now().hour
 
-    if 0 <= hour < 5:
+    if 0 <= hour < 3:
         return "Overnight"
+    if 3 <= hour <5:
+        return "Pre-Dawn"
     if 5 <= hour < 8:
         return "Early Morning"
     if 8 <= hour < 10:
@@ -205,26 +191,31 @@ async def grade_current_block(block_name, is_peak: bool):
         if actual_kwh_used < 0:
             actual_kwh_used = 0.0
 
-        # 2.5 TIME-TO-TEMPERATURE PENALTY
+        # 2.5 TIME-AT-TEMPERATURE EVALUATION
         max_minutes = 120.0
         time_weight_factor = 3.0
 
         block_start = state.APP_STATE.get("block_start_time")
-        target_reached = state.APP_STATE.get("target_reached_time")
-
-        if block_start and target_reached:
-            time_diff = target_reached - block_start
-            minutes_taken = time_diff.total_seconds() / 60.0
-        else:
-            minutes_taken = max_minutes
-            print("⚠️ Target never reached in this block. Applying max time penalty.")
-
-        time_penalty = (minutes_taken / max_minutes) * time_weight_factor
-        print(f"⏱️ Time Taken: {minutes_taken:.1f} mins | Time Penalty: -{time_penalty:.2f}")
         block_duration = (datetime.now() - block_start).total_seconds() / 60.0
+
+        minutes_at_target = float(state.APP_STATE.get("minutes_at_target", 0.0))
+        target_percentage = minutes_at_target / max_minutes
+
+        time_impact = (
+            (target_percentage * (time_weight_factor * 2)) - time_weight_factor
+        )
+
+        print(
+            f"⏱️ Time at Target: {minutes_at_target:.1f}/{max_minutes} mins | "
+            f"Time Impact: {time_impact:+.2f}"
+        )
+
         if block_duration < 30:
-            print("⚠️ Block too short for fair grading (Restart detected). Skipping time penalty.")
-            time_penalty = 0.0
+            print(
+                "⚠️ Block too short for fair grading (Restart detected). "
+                "Skipping time impact."
+            )
+            time_impact = 0.0
 
         # 3. Reward Calculation
         overrides = state.APP_STATE.get("user_override_count", 0)
@@ -238,12 +229,12 @@ async def grade_current_block(block_name, is_peak: bool):
         )
 
         # Final score for this 2-hour window
-        reward = base_reward - time_penalty
+        reward = base_reward + time_impact
 
         print(f"✅ {block_name} calculation complete. Immediate Reward: {reward:.2f} | kWh: {actual_kwh_used:.2f}")
 
-    except Exception as e:
-        print(f"❌ Error calculating grade for {block_name}: {e}")
+    except (ValueError, TypeError) as e:
+        print(f"❌ Data calculation error for {block_name}: {e}")
         reward = -5.0 # Penalty for failing to provide data
 
     # CRITICAL: Hand the number back to the master_clock!
@@ -251,7 +242,8 @@ async def grade_current_block(block_name, is_peak: bool):
 
 async def master_clock():
     """Master clock that monitors everything at 5 minutes intervals"""
-    print("🕰️ High-Res Master Clock started. Monitoring 5 minute intervals.")
+    if config.DEBUG_MODE_ENV is True:
+        print("🕰️ High-Res Master Clock started. Monitoring 5 minute intervals.")
     f_temp = 75.0  # Initial default
     f_humid = 20.0 # Initial default
 
@@ -264,8 +256,9 @@ async def master_clock():
         chosen_action = state.APP_STATE.get("locked_action", "Normal")
 
         # --- THE 5-MINUTE TELEMETRY LOOP ---
-        if now.minute % 5 == 0 and state.APP_STATE["last_evaluated_minute"] != now.minute:
-            # Inside master_loop.py -> master_clock() 5-minute interval loop:
+        is_uninitialized = state.APP_STATE["last_evaluated_minute"] == -1
+        if (now.minute % 5 == 0 or is_uninitialized) and state.APP_STATE["last_evaluated_minute"] != now.minute:
+        #run on fresh boot and every 5 minutes
 
             if config.ENABLE_AQ_FEATURE:
                 aq_data = await ha_api.get_all_air_quality_metrics()
@@ -316,8 +309,9 @@ async def master_clock():
                     if any_triggered:
                         # THE KILL-SWITCH: Check outdoor temp before starting
                         if f_temp >= config.AQ_MAX_OUTDOOR_TEMP:
-                            print(f"🔥 AQ Alert ignored: Outdoor temp ({f_temp}°F) exceeds "
-                            f"the {config.AQ_MAX_OUTDOOR_TEMP}°F safety limit.")
+                            if config.DEBUG_MODE_ENV is True:
+                                print(f"🔥 AQ Alert ignored: Outdoor temp ({f_temp}°F) exceeds "
+                                f"the {config.AQ_MAX_OUTDOOR_TEMP}°F safety limit.")
                         else:
                             reason = []
                             if voc_triggered:
@@ -337,11 +331,11 @@ async def master_clock():
                     # THE ABORT RAIL: Stop venting if the air is clean OR if it just got too hot outside
                     if all_clean or f_temp >= config.AQ_MAX_OUTDOOR_TEMP:
                         if f_temp >= config.AQ_MAX_OUTDOOR_TEMP and not all_clean:
-                            print(f"🔥 Aborting vent: Outdoor temp"
+                            print(f"🔥 Aborting vent: Outfdoor temp"
                             f"hit {f_temp}°F!"
                             f" Closing fan to protect thermals.")
                         else:
-                            print(f"✅ SENS55 Safe. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
+                            print(f"✅ AQ is back to safe levels. (VOC:{voc}, NOx:{nox}, CO2:{co2}).")
 
                         await ha_api.set_fan(False)
                         state.APP_STATE["is_currently_venting"] = False
@@ -370,40 +364,30 @@ async def master_clock():
                 else:
                     current_kwh = float(raw_kwh)
 
-                # B. Weather Fetch (Fail-safe against the 'float' error)
-                try:
-                    new_f_temp = await ha_api.get_sensor_state(config.OUTSIDE_TEMP_SENSOR)
-                    new_f_humid = await ha_api.get_sensor_state(config.OUTSIDE_HUMD_SENSOR)
+            # B. Weather Fetch (Fail-safe against the 'float' error)
+                new_f_temp = await ha_api.get_sensor_state(config.OUTSIDE_TEMP_SENSOR)
+                new_f_humid = await ha_api.get_sensor_state(config.OUTSIDE_HUMD_SENSOR)
 
-                    # --- 1. Handle Temperature Independently ---
-                    if new_f_temp is not None and new_f_temp > 32.0:
-                        f_temp = new_f_temp # Update with fresh data
+                # --- 1. Handle Temperature Independently ---
+                if new_f_temp is not None and new_f_temp > 32.0:
+                    f_temp = new_f_temp # Update with fresh data
+                else:
+                    # If None (reloading), only hold if we already have a past value
+                    if f_temp is not None:
+                        print(f"📡 Temp Sensor busy. Holding last value: {f_temp}°F")
                     else:
-                        # If None (reloading), only hold if we already have a past value
-                        if f_temp is not None:
-                            print(f"📡 Temp Sensor busy. Holding last value: {f_temp}°F")
-                        else:
-                            # If it's the very first boot and it fails, use a hot fallback so we don't ignore the PC!
-                            print("⚠️ Temp sensor unavailable on boot. Using 86.0°F fallback.")
-                            f_temp = 86.0
-
-                    # --- 2. Handle Humidity Independently ---
-                    if new_f_humid is not None:
-                        f_humid = new_f_humid
-                    else:
-                        if f_humid is not None:
-                            print(f"📡 Humid Sensor busy. Holding last value: {f_humid}%")
-                        else:
-                            print("⚠️ Humid sensor unavailable. Using 20.0% fallback.")
-                            f_humid = 20.0
-
-                except Exception as e:
-                    # Catch the actual error so you can see if it's a network drop or a typo
-                    print(f"🛑 Critical error fetching outdoor sensors: {e}")
-                    # Only force fallbacks if we absolutely have no past data to hold onto
-                    if f_temp is None:
+                        # If it's the very first boot and it fails, use a hot fallback so we don't ignore the PC!
+                        print("⚠️ Temp sensor unavailable on boot. Using 86.0°F fallback.")
                         f_temp = 86.0
-                    if f_humid is None:
+
+                # --- 2. Handle Humidity Independently ---
+                if new_f_humid is not None:
+                    f_humid = new_f_humid
+                else:
+                    if f_humid is not None:
+                        print(f"📡 Humid Sensor busy. Holding last value: {f_humid}%")
+                    else:
+                        print("⚠️ Humid sensor unavailable. Using 20.0% fallback.")
                         f_humid = 20.0
 
                 # --- C. BLOCK TRANSITION & INITIALIZATION ---
@@ -412,6 +396,8 @@ async def master_clock():
 
                 # 1. First, handle database recovery if it's a reboot
                 is_recovery_successful = False
+                stranded_block_recovered = False
+
                 if is_startup:
                     db_active_block = database.get_session_state("active_block")
                     if db_active_block == current_block:
@@ -423,14 +409,7 @@ async def master_clock():
                         if stored_time:
                             state.APP_STATE["block_start_time"] = datetime.fromisoformat(stored_time)
 
-                        stored_reached = database.get_session_state("target_reached_time")
-                        if stored_reached:
-                            state.APP_STATE["target_reached_time"] = datetime.fromisoformat(stored_reached)
-                            print(
-                                "🧠 Stopwatch Recovered: Target was previously reached at "
-                                f"{state.APP_STATE['target_reached_time'].strftime('%H:%M:%S')}"
-                            )
-                        stored_overrides = database.get_session_state("current_overrides")
+                        stored_overrides = database.get_session_state("user_override_count")
                         if stored_overrides:
                             state.APP_STATE["user_override_count"] = int(stored_overrides)
                         stored_is_manual = database.get_session_state("is_manual_override")
@@ -447,11 +426,43 @@ async def master_clock():
                         ) or "20-25%"
 
                         is_recovery_successful = True
+
+                    elif db_active_block is not None:
+                        print(f"⚠️ Offline across transition! Rescuing '{db_active_block}' for grading.")
+                        state.APP_STATE["active_block"] = db_active_block
+                        state.APP_STATE["start_kwh"] = float(database.get_session_state("start_kwh") or current_kwh)
+
+                        stored_time = database.get_session_state("block_start_time")
+                        if stored_time:
+                            state.APP_STATE["block_start_time"] = datetime.fromisoformat(stored_time)
+
+                        stored_overrides = database.get_session_state("user_override_count")
+                        if stored_overrides:
+                            state.APP_STATE["user_override_count"] = int(stored_overrides)
+
+                        stored_is_manual = database.get_session_state("is_manual_override")
+                        if stored_is_manual:
+                            state.APP_STATE["is_manual_override"] = stored_is_manual == "True"
+
+                        state.APP_STATE["minutes_at_target"] = float(
+                                                            database.get_session_state("minutes_at_target") or 0.0
+                                                        )
+
+                        last_state = database.get_last_known_state()
+                        if last_state:
+                            state.APP_STATE["locked_action"] = last_state["action_taken"]
+
+                        state.APP_STATE["current_band"] = (
+                            database.get_session_state("last_written_temp") or "<75",
+                            database.get_session_state("last_written_humid") or "20-25%"
+                        )
+                        stranded_block_recovered = True
+
                     else:
                         print(f"🆕 System start: No matching session found. Starting fresh for {current_block}.")
 
                 # 2. Process delayed grading if a block JUST finished
-                if is_new_block and not is_startup:
+                if (is_new_block and not is_startup) or stranded_block_recovered:
                     print(f"🚀 Transitioning to {current_block}")
                     finished_block = state.APP_STATE["active_block"]
                     is_peak = finished_block == "Peak Hours"
@@ -521,7 +532,7 @@ async def master_clock():
                     state.APP_STATE["active_block"] = current_block
                     state.APP_STATE["start_kwh"] = current_kwh
                     state.APP_STATE["user_override_count"] = 0
-                    state.APP_STATE["target_reached_time"] = None
+                    state.APP_STATE["minutes_at_target"] = 0.0
                     state.APP_STATE["is_manual_override"] = False
                     state.APP_STATE["block_had_aq_venting"] = False
                     state.APP_STATE["block_start_time"] = datetime.now()
@@ -529,11 +540,11 @@ async def master_clock():
                     database.save_session_state("active_block", current_block)
                     database.save_session_state("start_kwh", current_kwh)
                     database.save_session_state("block_start_time", state.APP_STATE["block_start_time"].isoformat())
-                    database.save_session_state("target_reached_time", "")
+                    database.save_session_state("minutes_at_target", "0.0")
 
                     try:
                         baseline = float(database.get_scheduled_temp(current_block))
-                    except Exception:
+                    except (ValueError, TypeError, sqlite3.Error):
                         baseline = 72.0
 
                     # Reset the locked target back to the true baseline before the AI chooses an action
@@ -545,25 +556,44 @@ async def master_clock():
                     actual_thermostat_target = 73.0
                     try:
                         async with httpx.AsyncClient(timeout=10) as client:
-                            response = await client.get(f"{config.HA_URL_STATE}{config.THERMOSTAT_ENTITY_ID}",
-                                                         headers=headers)
+                            response = await client.get(
+                                f"{config.HA_URL_STATE}{config.THERMOSTAT_ENTITY_ID}",
+                                headers=headers
+                            )
                             if response.status_code == 200:
                                 data = response.json()
                                 ha_target = data.get("attributes", {}).get("temperature")
-                                if ha_target:
+                                if ha_target is not None:
                                     actual_thermostat_target = float(ha_target)
-                                    print(f"🌡️ Live Thermostat Target detected: {actual_thermostat_target}°F")
-                    except Exception as e:
-                        print(f"⚠️ Could not fetch live target, using default: {e}")
+                                    print(
+                                        "🌡️ Live Thermostat Target detected: "
+                                        f"{actual_thermostat_target}°F"
+                                    )
+                    except httpx.RequestError as e:
+                        # Safely catch HTTPX timeouts and connection drops on boot
+                        print(f"⚠️ Network error fetching live target, using default: {e}")
+
+                    except (ValueError, TypeError) as e:
+                        # Safely catch HA returning non-float states like 'unavailable'
+                        print(f"⚠️ Data format error fetching live target, using default: {e}")
 
                     last_state = database.get_last_known_state()
-                    if last_state and abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
-                        print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']}")
-                        state.APP_STATE["locked_target"] = last_state["target_temp"]
-                        state.APP_STATE["locked_action"] = last_state["action_taken"]
-                        state.APP_STATE["recovered_from_reboot"] = True
+                    db_override_count = database.get_session_state("user_override_count")
+                    if db_override_count:
+                        state.APP_STATE["user_override_count"] = int(db_override_count)
+
+                    if is_recovery_successful and last_state:
+                        if abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
+                            print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']}")
+                            state.APP_STATE["locked_target"] = last_state["target_temp"]
+                            state.APP_STATE["locked_action"] = last_state["action_taken"]
+                            state.APP_STATE["recovered_from_reboot"] = True
+                    elif not is_recovery_successful:
+                        print("🆕 Reboot crossed time blocks (or first boot). Relinquishing control to AI.")
+                        state.APP_STATE["locked_target"] = None # Let AI choose the target!
+                        state.APP_STATE["recovered_from_reboot"] = False
                     else:
-                        print("🆕 Physical target changed while offline (or first boot). Treating as Manual Override.")
+                        print("🆕 Physical target changed while offline. Treating as Manual Override.")
                         state.APP_STATE["locked_target"] = actual_thermostat_target
                         state.APP_STATE["recovered_from_reboot"] = False
 
@@ -574,16 +604,16 @@ async def master_clock():
 
                     try:
                         baseline = float(database.get_scheduled_temp(current_block))
-                    except Exception as e:
+                    except (ValueError, TypeError, sqlite3.Error) as e:
                         print(f"⚠️ DB Error fetching schedule: {e}")
                         baseline = 75.0  # Safety net
 
                     try:
                         # Only check the future during morning/night prep blocks
-                        if current_block in ["Overnight", "Early Morning", "Late Morning"]:
+                        if current_block in ["Overnight", "Pre-Dawn", "Early Morning", "Late Morning"]:
                             forecast_rec, peak_temp = await evaluate_precooling()
-                    except Exception as e:
-                        print(f"⚠️ Advisor Error: {e}")
+                    except (KeyError, IndexError, TypeError, ValueError) as e:
+                        print(f"⚠️ Advisor JSON/Data Error: {e}")
                         forecast_rec = None
                         peak_temp = None
 
@@ -626,14 +656,18 @@ async def master_clock():
                         temp_band, humid_band = rl_agent.get_state_bands(f_temp, f_humid, peak_temp)
 
                         # Find out what the AI thinks of 'Normal' right now
-                        conn = sqlite3.connect(config.DB_PATH)
-                        cursor = conn.cursor()
-                        cursor.execute('''
-                            SELECT q_score FROM q_table
-                            WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ? AND action_taken = 'Normal'
-                        ''', (current_block, temp_band, humid_band, is_peak))
-                        row = cursor.fetchone()
-                        conn.close()
+                        try:
+                            with sqlite3.connect(config.DB_PATH) as conn:
+                                cursor = conn.cursor()
+                                cursor.execute('''
+                                    SELECT q_score FROM q_table
+                                    WHERE time_block = ? AND temp_band = ? AND humidity_band = ? AND is_peak_pricing = ? AND action_taken = 'Normal'
+                                ''', (current_block, temp_band, humid_band, is_peak))
+                                row = cursor.fetchone()
+                        except sqlite3.Error as e:
+                            print("Error reading current 'Normal'"
+                                f"from q_table: {e}"
+                            )
 
                         if row and len(row) > 0:
                             ai_score_normal = row[0]
@@ -676,33 +710,38 @@ async def master_clock():
 
                 target_temp = state.APP_STATE.get("locked_target", 72.0)
                 if target_temp is None:
-                    target_temp = 75.0
+                    target_temp = 72.0
 
                 # D. EXECUTE & LOG
                 live_action = state.APP_STATE.get("locked_action", "Normal")
-                live_target = state.APP_STATE.get("locked_target", 72.0)
                 running_kwh = float(current_kwh) - float(state.APP_STATE.get("start_kwh", 0.0))
-                state.APP_STATE["expected_target_temp"] = float(live_target)
-                asyncio.create_task(ha_api.trigger_cooling(live_target))
+                state.APP_STATE["expected_target_temp"] = float(target_temp)
+                asyncio.create_task(ha_api.trigger_cooling(target_temp))
 
                 # Check if the indoor temperature satisfies the cooling target'
                 if is_temp_valid:
-                    if indoor_temp <= live_target:
-                        if state.APP_STATE.get("target_reached_time") is None:
-                            reached_now = datetime.now()
-                            state.APP_STATE["target_reached_time"] = datetime.now()
-                            database.save_session_state("target_reached_time", reached_now.isoformat())
-                            print(f"⏱️ Target reached at {datetime.now().strftime('%H:%M:%S')}")
+                    if indoor_temp <= target_temp:
+                        current_mins = float(
+                            state.APP_STATE.get("minutes_at_target", 0.0)
+                        )
+                        new_mins = current_mins + 5.0
+                        state.APP_STATE["minutes_at_target"] = new_mins
+
+                        database.save_session_state("minutes_at_target", str(new_mins))
+                        if config.DEBUG_MODE_ENV is True:
+                            print(
+                                f"⏱️ Target Maintained: {new_mins} total mins in this block."
+                            )
                     else:
-                        # Temperature exceeded target; clear tracking to capture recovery duration
-                        if state.APP_STATE.get("target_reached_time") is not None:
-                            state.APP_STATE["target_reached_time"] = None
-                            database.save_session_state("target_reached_time", "")
-                            print("⚠️ Temperature exceeded target. Resetting tracking clock.")
+                        if config.DEBUG_MODE_ENV is True:
+                            print(
+                                f"⚠️ Temp ({indoor_temp}°F) is above target "
+                                f"({target_temp}°F)."
+                            )
 
                 current_overrides = state.APP_STATE.get("user_override_count", 0)
                 if current_overrides:
-                    database.save_session_state("current_overrides", "0")
+                    database.save_session_state("user_override_count", "0")
                 if state.APP_STATE.get("is_manual_override", False):
                     database.save_session_state("is_manual_override", "False")
                 is_peak = current_block == "Peak Hours"
@@ -715,26 +754,16 @@ async def master_clock():
                     block_had_aq_venting=had_venting
                 )
 
-                is_ambient_cooling = False
-                if f_temp > 40.0 and f_temp < (live_target - 4):
-                    is_ambient_cooling = True
-                    print(f"🌬️ Ambient Cooling Active: Outdoor {f_temp}°F is 4°+ below Target {live_target}°F.")
-
-                # Update the action name for the log so you can see it in the dashboard
-                display_action = live_action
-                if is_ambient_cooling:
-                    display_action = f"{live_action} (Fan Only)"
-
                 state.APP_STATE["last_f_temp"] = f_temp
                 state.APP_STATE["last_f_humid"] = f_humid
                 database.log_history(
                     current_block, indoor_temp, target_temp, f_humid,
-                    display_action, max(0, running_kwh), state.APP_STATE.get("user_override_count", 0), snapshot_reward
+                    live_action, max(0, running_kwh), state.APP_STATE.get("user_override_count", 0), snapshot_reward
                 )
-                print(f"✅ 5-minute log successful. ({live_action} @ {live_target}°F"
+                print(f"✅ 5-minute log successful. ({live_action} @ {target_temp}°F"
                       f" | Live Reward: {snapshot_reward:.2f})")
 
-            except Exception as e:
-                print(f"❌ CRITICAL ERROR IN MASTER CLOCK: {e}")
+            except (ValueError, TypeError, KeyError) as e:
+                print(f"❌ DATA FORMAT ERROR IN MASTER CLOCK: {e}")
 
         await asyncio.sleep(1)

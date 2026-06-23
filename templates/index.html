@@ -252,6 +252,47 @@ function populateDropdowns() {
         }
     }
 
+    async function jumpToCurrent() {
+        try {
+            // Fetch the active state from volatile memory
+            const response = await fetch('/api/current_state');
+            const result = await response.json();
+            
+            if (result.temp_band && result.humid_band) {
+                const tempSelect = document.getElementById('temp-filter');
+                const humidSelect = document.getElementById('humid-filter');
+                let uiChanged = false;
+
+                // Safely update Temp dropdown
+                if (Array.from(tempSelect.options).some(opt => opt.value === result.temp_band)) {
+                    tempSelect.value = result.temp_band;
+                    sessionStorage.setItem("thermostat_temp_selection", result.temp_band);
+                    uiChanged = true;
+                } else {
+                    console.warn("Live Temp band not found in UI options:", result.temp_band);
+                }
+
+                // Safely update Humid dropdown
+                if (Array.from(humidSelect.options).some(opt => opt.value === result.humid_band)) {
+                    humidSelect.value = result.humid_band;
+                    sessionStorage.setItem("thermostat_humid_selection", result.humid_band);
+                    uiChanged = true;
+                } else {
+                    console.warn("Live Humid band not found in UI options:", result.humid_band);
+                }
+
+                // Render the matrix if changes were successfully applied
+                if (uiChanged) {
+                    renderFilteredMatrix();
+                }
+            } else {
+                console.warn("Active block state is not available yet (System might be booting).");
+            }
+        } catch (error) {
+            console.error("Failed to fetch live state:", error);
+        }
+    }
+
     function jumpToLastGraded() {
         const fallbackDiv = document.getElementById('fallback-defaults');
         const defaultTemp = fallbackDiv ? fallbackDiv.getAttribute('data-temp') : null;
@@ -354,7 +395,7 @@ function populateDropdowns() {
         }
 
         const activeTimeBlocks = [
-            "Overnight", "Early Morning", "Late Morning", "Mid-Day", 
+            "Overnight", "Pre-Dawn", "Early Morning", "Late Morning", "Mid-Day", 
             "Early Afternoon", "Late Afternoon", "Peak Hours", "Evening", 
             "Late Night"
         ];
@@ -456,7 +497,8 @@ function populateDropdowns() {
                 <div class="form-group">
                     <label>Time Block</label>
                     <select id="timeBlock">
-                        <option value="Overnight">Overnight (12am-5am)</option>
+                        <option value="Overnight">Overnight (12am-3am)</option>
+                        <option value="Pre-Dawn">Pre-Dawn (3am-5am)</option>
                         <option value="Early Morning">Early Morning (5am-8am)</option>
                         <option value="Late Morning">Late Morning (8am-10am)</option>
                         <option value="Mid-Day">Mid-Day (10am-12pm)</option>
@@ -504,8 +546,11 @@ function populateDropdowns() {
                         <option value="true">🔥 Peak Pricing</option>
                     </select>
                 </div>
-                <div class="filter-group" style="justify-content: flex-end;">
-                    <button onclick="jumpToLastGraded()" style="margin-top: auto; padding: 8px 12px; font-size: 0.85em; background-color: var(--border); border: 1px solid var(--accent); color: var(--accent);">
+                <div class="filter-group" style="justify-content: flex-end; flex-direction: row; gap: 10px; align-items: flex-end;">
+                    <button onclick="jumpToCurrent()" style="padding: 8px 12px; font-size: 0.85em; background-color: var(--border); border: 1px solid var(--success); color: var(--success);">
+                        ⚡ Jump to Current
+                    </button>
+                    <button onclick="jumpToLastGraded()" style="padding: 8px 12px; font-size: 0.85em; background-color: var(--border); border: 1px solid var(--accent); color: var(--accent);">
                         🎯 Jump to Last
                     </button>
                 </div>
@@ -572,6 +617,7 @@ function populateDropdowns() {
         function updateChart(historyData) {
             const blockColors = {
                 "Overnight": "rgba(30, 58, 138, 0.15)",
+                "Pre-Dawn": "rgba(45, 90, 180, 0.15)",
                 "Early Morning": "rgba(59, 130, 246, 0.15)",
                 "Late Morning": "rgba(14, 165, 233, 0.15)",
                 "Mid-Day": "rgba(234, 179, 8, 0.15)",
