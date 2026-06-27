@@ -72,4 +72,7 @@ AQ_CO2_THRESHOLD :float = float(os.getenv("AQ_CO2_THRESHOLD", "1100.0"))
 AQ_CO2_CLEAN_THRESHOLD :float = float(os.getenv("AQ_CO2_CLEAN_THRESHOLD", "800.0"))
 
 #DEBUG MODE TOGGLE
-DEBUG_MODE_ENV :bool = bool(os.getenv("DEBUG_MODE", "False"))
+if os.getenv("DEBUG_MODE", "False").lower() == "true":
+    DEBUG_MODE_ENV :bool = True
+else:   
+    DEBUG_MODE_ENV :bool = False
