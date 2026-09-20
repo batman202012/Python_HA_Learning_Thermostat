@@ -34,20 +34,34 @@ async def handle_thermostat_change(state_data):
     new_temp = float(new_temp_raw)
     expected = state.APP_STATE.get("expected_target_temp")
 
+    # Extract user_id from Home Assistant context
+    context = new_state.get("context") or {}
+    user_id = context.get("user_id")
+
     # If there's no expected temp yet, or the new temp is different from the AI's last command
     if expected is None:
         print(f"📡 Initial Sync: Thermostat is at {new_temp}°F. Memory updated.")
         state.APP_STATE["expected_target_temp"] = float(new_temp)
         state.APP_STATE["locked_target"] = float(new_temp)
         return
+
     elif abs(new_temp - float(expected)) > 0.5:
-        print(f"🚨 MANUAL OVERRIDE DETECTED: House set to {new_temp}°F")
+        # Ignore drift caused by integration reloads, HA reboots, or physical unauthenticated resets
+        if user_id is None:
+            print(f"⚠️ Unattended setpoint drift to {new_temp}°F (no user_id). Re-asserting expected {expected}°F.")
+            await ha_api.trigger_cooling(float(expected))
+            return
+
+        print(f"🚨 MANUAL OVERRIDE DETECTED: User ({user_id}) set house to {new_temp}°F")
         state.APP_STATE["is_manual_override"] = True
         state.APP_STATE["expected_target_temp"] = new_temp
         state.APP_STATE["locked_target"] = float(new_temp)
         current_ai_action = state.APP_STATE.get("locked_action")
         state.APP_STATE["user_override_count"] += 1
+
+        # Persist both the count and override flag to SQLite across reboots
         database.save_session_state("user_override_count", str(state.APP_STATE["user_override_count"]))
+        database.save_session_state("is_manual_override", "True")
 
         # Add a check to ensure we only penalize actual AI strategies
         if current_ai_action != "Manual/Baseline":
@@ -68,13 +82,13 @@ async def handle_thermostat_change(state_data):
 
             # Deliver the instant Bellman update
             database.update_q_score(
-                    time_block,
-                    temp_band,
-                    humid_band,
-                    is_peak,
-                    current_ai_action,
-                    live_penalty
-                )
+                time_block,
+                temp_band,
+                humid_band,
+                is_peak,
+                current_ai_action,
+                live_penalty
+            )
 
     else:
         # This was an AI-driven change, so we ignore it for the override counter
