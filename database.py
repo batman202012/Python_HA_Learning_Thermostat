@@ -101,7 +101,7 @@ def get_last_known_state():
 
             row = cursor.fetchone()
             if row:
-                return {"target_temp": float(row[0]), "action_taken": row[1]}
+                return {"target_temp": float(row[0]), "action_taken": str(row[1])}
     except sqlite3.Error as e:
         print(f"⚠️ Could not fetch last state from database: {e}")
     return None

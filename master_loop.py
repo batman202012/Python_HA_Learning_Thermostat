@@ -260,6 +260,7 @@ async def master_clock():
         if (now.minute % 5 == 0 or is_uninitialized) and state.APP_STATE["last_evaluated_minute"] != now.minute:
         #run on fresh boot and every 5 minutes
 
+            # --- AIR QUALITY CHECK ---
             if config.ENABLE_AQ_FEATURE:
                 aq_data = await ha_api.get_all_air_quality_metrics()
                 voc = aq_data["voc"]
@@ -340,6 +341,7 @@ async def master_clock():
                         await ha_api.set_fan(False)
                         state.APP_STATE["is_currently_venting"] = False
 
+
             state.APP_STATE["last_evaluated_minute"] = now.minute
             try:
                 # A. Fetch Sensors
@@ -398,6 +400,7 @@ async def master_clock():
                 is_recovery_successful = False
                 stranded_block_recovered = False
 
+                # --- STARTUP RECOVERY LOGIC ---
                 if is_startup:
                     db_active_block = database.get_session_state("active_block")
                     if db_active_block == current_block:
@@ -554,6 +557,8 @@ async def master_clock():
                 if is_startup:
                     headers = {"Authorization": f"Bearer {config.HA_TOKEN}", "Content-Type": "application/json"}
                     actual_thermostat_target = 73.0
+                    ha_user_id = None
+
                     try:
                         async with httpx.AsyncClient(timeout=10) as client:
                             response = await client.get(
@@ -569,6 +574,11 @@ async def master_clock():
                                         "🌡️ Live Thermostat Target detected: "
                                         f"{actual_thermostat_target}°F"
                                     )
+
+                                context = data.get("context") or {}
+                                ha_user_id = context.get("user_id")
+                                if ha_user_id:
+                                    print(f"👤 Target set by Home Assistant User ID: {ha_user_id}")
                     except httpx.RequestError as e:
                         # Safely catch HTTPX timeouts and connection drops on boot
                         print(f"⚠️ Network error fetching live target, using default: {e}")
@@ -583,18 +593,44 @@ async def master_clock():
                         state.APP_STATE["user_override_count"] = int(db_override_count)
 
                     if is_recovery_successful and last_state:
+                        state.APP_STATE["locked_target"] = last_state["target_temp"]
+                        state.APP_STATE["locked_action"] = last_state["action_taken"]
+                        state.APP_STATE["expected_target_temp"] = last_state["target_temp"]
+                        state.APP_STATE["recovered_from_reboot"] = True
+                        state.APP_STATE["is_manual_override"] = False
+
                         if abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
-                            print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']}")
+                            print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']} @ {last_state['target_temp']}°F")
+                        elif ha_user_id is not None:
+                            print(f"🚨 Physical/UI target manually set by user ({ha_user_id}) to {actual_thermostat_target}°F. Treating as Manual Override.")
+                            state.APP_STATE["locked_target"] = actual_thermostat_target
+                            state.APP_STATE["locked_action"] = "Manual/Baseline"
+                            state.APP_STATE["expected_target_temp"] = actual_thermostat_target
+                            state.APP_STATE["is_manual_override"] = True
+                            state.APP_STATE["recovered_from_reboot"] = False
+                        else:
+                            print(f"🔄 Reboot drift detected without user intervention (HA: {actual_thermostat_target}°F vs DB: {last_state['target_temp']}°F). Restoring AI strategy.")
                             state.APP_STATE["locked_target"] = last_state["target_temp"]
                             state.APP_STATE["locked_action"] = last_state["action_taken"]
+                            state.APP_STATE["expected_target_temp"] = last_state["target_temp"]
                             state.APP_STATE["recovered_from_reboot"] = True
+                            state.APP_STATE["is_manual_override"] = False
+                            try:
+                                await ha_api.trigger_cooling(last_state["target_temp"])
+                                print(f"📡 Synced Home Assistant thermostat target back to {last_state['target_temp']}°F")
+                            except Exception as e:
+                                print(f"⚠️ Could not push recovered target to HA: {e}")
+
                     elif not is_recovery_successful:
                         print("🆕 Reboot crossed time blocks (or first boot). Relinquishing control to AI.")
-                        state.APP_STATE["locked_target"] = None # Let AI choose the target!
+                        state.APP_STATE["locked_target"] = None
+                        state.APP_STATE["locked_action"] = None
                         state.APP_STATE["recovered_from_reboot"] = False
+
                     else:
-                        print("🆕 Physical target changed while offline. Treating as Manual Override.")
-                        state.APP_STATE["locked_target"] = actual_thermostat_target
+                        print("🆕 No prior state found in database. Relinquishing control to AI.")
+                        state.APP_STATE["locked_target"] = None
+                        state.APP_STATE["locked_action"] = None
                         state.APP_STATE["recovered_from_reboot"] = False
 
                 if is_startup or is_new_block:
