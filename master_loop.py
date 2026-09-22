@@ -467,7 +467,7 @@ async def master_clock():
 
                         last_state = database.get_last_known_state()
                         if last_state:
-                            state.APP_STATE["locked_action"] = last_state["action_taken"]
+                            state.APP_STATE["locked_action"] = last_state[1]
 
                         state.APP_STATE["current_band"] = (
                             database.get_session_state("last_written_temp") or "<75",
