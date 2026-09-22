@@ -92,6 +92,7 @@ def get_last_known_state():
     """Reads the AI's last recorded action from the execution history."""
     try:
         with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
             # --- FIX: Tell the SQL query to ignore dummy startup logs ---

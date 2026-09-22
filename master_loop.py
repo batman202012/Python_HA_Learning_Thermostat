@@ -467,7 +467,7 @@ async def master_clock():
 
                         last_state = database.get_last_known_state()
                         if last_state:
-                            state.APP_STATE["locked_action"] = last_state[1]
+                            state.APP_STATE["locked_action"] = last_state["action_taken"]
 
                         state.APP_STATE["current_band"] = (
                             database.get_session_state("last_written_temp") or "<75",
@@ -607,14 +607,14 @@ async def master_clock():
                         state.APP_STATE["user_override_count"] = int(db_override_count)
 
                     if is_recovery_successful and last_state:
-                        state.APP_STATE["locked_target"] = last_state[0]
-                        state.APP_STATE["locked_action"] = last_state[1]
-                        state.APP_STATE["expected_target_temp"] = last_state[0]
+                        state.APP_STATE["locked_target"] = last_state["target_temp"]
+                        state.APP_STATE["locked_action"] = last_state["action_taken"]
+                        state.APP_STATE["expected_target_temp"] = last_state["target_temp"]
                         state.APP_STATE["recovered_from_reboot"] = True
                         state.APP_STATE["is_manual_override"] = False
 
-                        if abs(last_state[0] - actual_thermostat_target) < 0.5:
-                            print(f"🧠 Strategy Recovered! Restoring previous action: {last_state[1]} @ {last_state[0]}°F")
+                        if abs(last_state["target_temp"] - actual_thermostat_target) < 0.5:
+                            print(f"🧠 Strategy Recovered! Restoring previous action: {last_state['action_taken']} @ {last_state['target_temp']}°F")
                         elif ha_user_id is not None:
                             print(f"🚨 Physical/UI target manually set by user ({ha_user_id}) to {actual_thermostat_target}°F. Treating as Manual Override.")
                             state.APP_STATE["locked_target"] = actual_thermostat_target
@@ -623,15 +623,15 @@ async def master_clock():
                             state.APP_STATE["is_manual_override"] = True
                             state.APP_STATE["recovered_from_reboot"] = False
                         else:
-                            print(f"🔄 Reboot drift detected without user intervention (HA: {actual_thermostat_target}°F vs DB: {last_state[0]}°F). Restoring AI strategy.")
-                            state.APP_STATE["locked_target"] = last_state[0]
-                            state.APP_STATE["locked_action"] = last_state[1]
-                            state.APP_STATE["expected_target_temp"] = last_state[0]
+                            print(f"🔄 Reboot drift detected without user intervention (HA: {actual_thermostat_target}°F vs DB: {last_state['target_temp']}°F). Restoring AI strategy.")
+                            state.APP_STATE["locked_target"] = last_state["target_temp"]
+                            state.APP_STATE["locked_action"] = last_state["action_taken"]
+                            state.APP_STATE["expected_target_temp"] = last_state["target_temp"]
                             state.APP_STATE["recovered_from_reboot"] = True
                             state.APP_STATE["is_manual_override"] = False
                             try:
-                                await ha_api.trigger_cooling(last_state[0])
-                                print(f"📡 Synced Home Assistant thermostat target back to {last_state[0]}°F")
+                                await ha_api.trigger_cooling(last_state["target_temp"])
+                                print(f"📡 Synced Home Assistant thermostat target back to {last_state['target_temp']}°F")
                             except Exception as e:
                                 print(f"⚠️ Could not push recovered target to HA: {e}")
 
